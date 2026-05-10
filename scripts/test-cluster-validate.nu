@@ -27,7 +27,7 @@ let status = ($status_result.stdout | from json)
 let nodes = ($status | get nodes)
 
 # Determine which nodes to test:
-# - Multi-node: test all worker IPs (nginx-ingress runs on workers, control-plane is tainted)
+# - Multi-node: test all worker IPs (traefik runs on workers, control-plane is tainted)
 # - Single-node: test the only node's IP
 let worker_nodes = ($nodes | where { |n| $n.role == "worker" })
 let test_nodes = if ($worker_nodes | is-not-empty) {

@@ -497,13 +497,13 @@ fn test_install_command_help() {
 }
 
 #[test]
-fn test_install_nginx_ingress() {
+fn test_install_traefik() {
     let context = TestContext::new();
     context.create_test_config().unwrap();
 
     let mut cmd = context.kina_command();
-    cmd.args(&["install", "nginx-ingress"]);
-    // Tests installing nginx-ingress addon
+    cmd.args(&["install", "traefik"]);
+    // Tests installing traefik addon
 }
 
 #[test]
@@ -512,7 +512,7 @@ fn test_install_with_cluster() {
     context.create_test_config().unwrap();
 
     let mut cmd = context.kina_command();
-    cmd.args(&["install", "nginx-ingress", "--cluster", "test-cluster"]);
+    cmd.args(&["install", "traefik", "--cluster", "test-cluster"]);
     // Tests installing addon to specific cluster
 }
 
@@ -522,7 +522,7 @@ fn test_install_with_version() {
     context.create_test_config().unwrap();
 
     let mut cmd = context.kina_command();
-    cmd.args(&["install", "nginx-ingress", "--version", "1.0.0"]);
+    cmd.args(&["install", "traefik", "--version", "1.0.0"]);
     // Tests installing addon with specific version
 }
 
@@ -532,7 +532,7 @@ fn test_install_with_config() {
     context.create_test_config().unwrap();
 
     let mut cmd = context.kina_command();
-    cmd.args(&["install", "nginx-ingress", "--config", "custom-config.yaml"]);
+    cmd.args(&["install", "traefik", "--config", "custom-config.yaml"]);
     // Tests installing addon with custom config
 }
 
@@ -704,7 +704,7 @@ fn test_install_no_clusters() {
     context.create_test_config().unwrap();
 
     let mut cmd = context.kina_command();
-    cmd.args(&["install", "nginx-ingress"]);
+    cmd.args(&["install", "traefik"]);
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("No clusters found"));

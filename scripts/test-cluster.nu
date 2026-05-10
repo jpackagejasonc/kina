@@ -40,24 +40,24 @@ if $create.exit_code != 0 {
 }
 log $"Cluster '($cluster_name)' created"
 
-# Step 3: Install nginx-ingress
-log "Step 3: Installing nginx-ingress controller..."
-let install_result = (do { ^cargo run --release --manifest-path kina-cli/Cargo.toml -- install nginx-ingress --cluster $cluster_name } | complete)
+# Step 3: Install Traefik (Gateway API)
+log "Step 3: Installing Traefik gateway controller..."
+let install_result = (do { ^cargo run --release --manifest-path kina-cli/Cargo.toml -- install traefik --cluster $cluster_name } | complete)
 print $install_result.stdout
 if $install_result.exit_code != 0 {
     print $install_result.stderr
-    err "Failed to install nginx-ingress"
+    err "Failed to install traefik"
 }
-log "nginx-ingress installed"
+log "traefik installed"
 
-# Step 4: Wait for nginx-ingress to be ready
-log "Step 4: Waiting for nginx-ingress to be ready..."
+# Step 4: Wait for Traefik to be ready
+log "Step 4: Waiting for traefik to be ready..."
 let kubeconfig_path = $"($env.HOME)/.kube/($cluster_name)"
-let wait_result = (do { ^kubectl $"--kubeconfig=($kubeconfig_path)" wait --for=condition=Ready pods -n nginx-ingress --all --timeout=180s } | complete)
+let wait_result = (do { ^kubectl $"--kubeconfig=($kubeconfig_path)" wait --for=condition=Ready pods -n traefik --all --timeout=240s } | complete)
 if $wait_result.exit_code != 0 {
-    err "nginx-ingress did not become ready in time"
+    err "traefik did not become ready in time"
 }
-log "nginx-ingress is ready"
+log "traefik is ready"
 
 # Step 5: Deploy demo application
 log "Step 5: Deploying demo application..."
@@ -65,8 +65,8 @@ log "Step 5: Deploying demo application..."
 # Get DNS domain
 let dns_raw = (do { ^container system dns list } | complete)
 let dns_domain = if $dns_raw.exit_code == 0 {
-    let first_line = ($dns_raw.stdout | lines | where { |l| not ($l | is-empty) } | first | default "")
-    $first_line | str trim
+    let first_line = ($dns_raw.stdout | lines | each { |l| $l | str trim } | where { |l| (not ($l | is-empty)) and ($l != "DOMAIN") } | first | default "")
+    $first_line
 } else {
     ""
 }

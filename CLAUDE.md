@@ -18,7 +18,7 @@ See [AGENTS.md](AGENTS.md) for beads workflow, session completion rules, and `bd
 ## Project Structure
 - **kina-cli/src/**: Rust CLI source (cli/, core/, config/, errors/, utils/)
 - **kina-cli/tests/**: CLI and config tests
-- **kina-cli/manifests/**: Kubernetes manifests (nginx-ingress, demo-app)
+- **kina-cli/manifests/**: Kubernetes manifests (traefik, demo-app)
 - **kina-cli/images/**: Custom node image Dockerfile and build scripts
 - **scripts/**: Extracted mise task scripts (Nushell `.nu` and Bash `.sh`)
 - **docs/research/**: Apple Container, KIND, CNI/Cilium research

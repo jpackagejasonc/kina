@@ -1,18 +1,16 @@
-# Multi-Service Application with Path-Based Routing
+# Multi-Service Application with Path-Based Routing (Gateway API)
 #
-# This example demonstrates:
-# - Multiple services behind a single ingress
-# - Path-based routing (/app, /api, /admin)
-# - Different applications serving different paths
+# Demonstrates:
+# - Multiple services behind a single HTTPRoute
+# - Path-based routing (/app, /api, /admin) with URLRewrite filters
 #
 # Deploy with: kubectl apply -f multi-service-routing.yaml
 # Test with:
 #   curl -H "Host: platform.local" http://<cluster-ip>/app
-#   curl -H "Host: platform.local" http://<cluster-ip>/api/health
+#   curl -H "Host: platform.local" http://<cluster-ip>/api
 #   curl -H "Host: platform.local" http://<cluster-ip>/admin
 
 ---
-# Frontend Application
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -29,13 +27,19 @@ spec:
         app: frontend-app
     spec:
       containers:
-      - name: nginx
-        image: nginx:alpine
+      - name: web
+        image: joseluisq/static-web-server:2.42.0
         ports:
         - containerPort: 80
+        env:
+        - name: SERVER_ROOT
+          value: /public
+        - name: SERVER_PORT
+          value: "80"
         volumeMounts:
         - name: frontend-content
-          mountPath: /usr/share/nginx/html
+          mountPath: /public
+          readOnly: true
       volumes:
       - name: frontend-content
         configMap:
@@ -73,7 +77,6 @@ spec:
     targetPort: 80
 
 ---
-# API Backend
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -90,13 +93,19 @@ spec:
         app: api-backend
     spec:
       containers:
-      - name: httpd
-        image: httpd:alpine
+      - name: web
+        image: joseluisq/static-web-server:2.42.0
         ports:
         - containerPort: 80
+        env:
+        - name: SERVER_ROOT
+          value: /public
+        - name: SERVER_PORT
+          value: "80"
         volumeMounts:
         - name: api-content
-          mountPath: /usr/local/apache2/htdocs
+          mountPath: /public
+          readOnly: true
       volumes:
       - name: api-content
         configMap:
@@ -119,12 +128,6 @@ data:
         <p>Path: /api</p>
     </body>
     </html>
-  health.html: |
-    {
-      "status": "healthy",
-      "service": "api-backend",
-      "timestamp": "2025-09-28T23:00:00Z"
-    }
 
 ---
 apiVersion: v1
@@ -140,7 +143,6 @@ spec:
     targetPort: 80
 
 ---
-# Admin Interface
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -157,13 +159,19 @@ spec:
         app: admin-interface
     spec:
       containers:
-      - name: nginx
-        image: nginx:alpine
+      - name: web
+        image: joseluisq/static-web-server:2.42.0
         ports:
         - containerPort: 80
+        env:
+        - name: SERVER_ROOT
+          value: /public
+        - name: SERVER_PORT
+          value: "80"
         volumeMounts:
         - name: admin-content
-          mountPath: /usr/share/nginx/html
+          mountPath: /public
+          readOnly: true
       volumes:
       - name: admin-content
         configMap:
@@ -184,9 +192,6 @@ data:
         <h1>⚙️ Admin Interface</h1>
         <p>This is the administration interface.</p>
         <p>Path: /admin</p>
-        <div style="background: #fff3cd; padding: 10px; border-radius: 4px;">
-            <strong>⚠️ Warning:</strong> This is a demo admin interface.
-        </div>
     </body>
     </html>
 
@@ -204,55 +209,62 @@ spec:
     targetPort: 80
 
 ---
-# Single Ingress with Path-Based Routing
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
 metadata:
-  name: platform-ingress
+  name: platform-route
   namespace: default
-  annotations:
-    nginx.org/ssl-redirect: "false"
-    nginx.org/server-tokens: "false"
-    # URL rewriting for clean paths
-    nginx.org/rewrites: |
-      serviceName=frontend-service rewrite=/
-      serviceName=api-service rewrite=/
-      serviceName=admin-service rewrite=/
 spec:
-  ingressClassName: nginx
+  parentRefs:
+  - name: traefik
+    namespace: traefik
+    sectionName: web
+  hostnames:
+  - platform.local
   rules:
-  - host: platform.local
-    http:
-      paths:
-      # Frontend application
-      - path: /app
-        pathType: Prefix
-        backend:
-          service:
-            name: frontend-service
-            port:
-              number: 80
-      # API backend
-      - path: /api
-        pathType: Prefix
-        backend:
-          service:
-            name: api-service
-            port:
-              number: 80
-      # Admin interface
-      - path: /admin
-        pathType: Prefix
-        backend:
-          service:
-            name: admin-service
-            port:
-              number: 80
-      # Default route to frontend
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: frontend-service
-            port:
-              number: 80
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /app
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          type: ReplacePrefixMatch
+          replacePrefixMatch: /
+    backendRefs:
+    - name: frontend-service
+      port: 80
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /api
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          type: ReplacePrefixMatch
+          replacePrefixMatch: /
+    backendRefs:
+    - name: api-service
+      port: 80
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /admin
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          type: ReplacePrefixMatch
+          replacePrefixMatch: /
+    backendRefs:
+    - name: admin-service
+      port: 80
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: frontend-service
+      port: 80
