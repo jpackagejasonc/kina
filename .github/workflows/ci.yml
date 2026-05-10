@@ -9,7 +9,7 @@ jobs:
   lint:
     strategy:
       matrix:
-        runner: [macos-26, macos-15]
+        runner: [macos-26]
       fail-fast: false
     runs-on: ${{ matrix.runner }}
     steps:

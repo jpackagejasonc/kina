@@ -9,8 +9,8 @@ RUST_BACKTRACE = "1"
 rust = "stable"
 cilium-cli = "0.19.2"
 "github:nushell/nushell" = { version = "0.112.2", exe = "nu" }
-act = "0.2.87"
-"github:gastownhall/beads" = "1.0.3"
+act = "0.2.88"
+"github:gastownhall/beads" = "1.0.4"
 "cargo:cargo-audit" = "0.22.1"
 "cargo:cargo-tarpaulin" = "0.35.4"
 
