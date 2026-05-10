@@ -5,6 +5,53 @@ use tracing::{debug, info, warn};
 
 pub mod cluster_config;
 
+/// Kubernetes orchestrator provider selection
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum KubernetesProvider {
+    Kubeadm,
+    Rusternetes,
+}
+
+impl Default for KubernetesProvider {
+    fn default() -> Self {
+        Self::Kubeadm
+    }
+}
+
+/// Rusternetes orchestrator configuration
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(default)]
+pub struct RusternetesConfig {
+    pub binary_path: Option<PathBuf>,
+    pub data_dir: Option<PathBuf>,
+    pub port: u16,
+    pub etcd_binary: Option<PathBuf>,
+    pub etcd_client_port: u16,
+    pub etcd_peer_port: u16,
+}
+
+impl Default for RusternetesConfig {
+    fn default() -> Self {
+        Self {
+            binary_path: None,
+            data_dir: None,
+            port: 6443,
+            etcd_binary: None,
+            etcd_client_port: 2379,
+            etcd_peer_port: 2380,
+        }
+    }
+}
+
+/// Socktainer daemon configuration
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub struct SocktainerConfig {
+    pub binary_path: Option<PathBuf>,
+    pub socket_path: Option<PathBuf>,
+}
+
 /// Main configuration structure for kina CLI application
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
@@ -19,6 +66,14 @@ pub struct Config {
 
     /// Logging configuration
     pub logging: LoggingConfig,
+
+    /// Rusternetes orchestrator settings
+    #[serde(default)]
+    pub rusternetes: RusternetesConfig,
+
+    /// Socktainer daemon settings
+    #[serde(default)]
+    pub socktainer: SocktainerConfig,
 
     /// Path to the configuration file (not serialized)
     #[serde(skip)]
@@ -111,6 +166,10 @@ pub struct KubernetesConfig {
 
     /// Kubeconfig directory
     pub kubeconfig_dir: PathBuf,
+
+    /// Default orchestrator provider
+    #[serde(default)]
+    pub provider: KubernetesProvider,
 }
 
 /// Logging configuration
@@ -171,9 +230,10 @@ impl Default for Config {
             },
             kubernetes: KubernetesConfig {
                 default_version: "v1.35.4".to_string(),
-                kubectl_path: None, // Will be detected automatically
+                kubectl_path: None,
                 default_namespace: "default".to_string(),
                 kubeconfig_dir: config_dir.join("kubeconfig"),
+                provider: KubernetesProvider::Kubeadm,
             },
             logging: LoggingConfig {
                 level: "info".to_string(),
@@ -181,6 +241,8 @@ impl Default for Config {
                 file_logging: false,
                 log_dir: None,
             },
+            rusternetes: RusternetesConfig::default(),
+            socktainer: SocktainerConfig::default(),
             config_file_path: None,
         }
     }

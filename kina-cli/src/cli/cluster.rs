@@ -4,7 +4,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 use tracing::{info, warn};
 
-use crate::config::{CniPlugin, Config};
+use crate::config::{CniPlugin, Config, KubernetesProvider};
 use crate::core::cluster::ClusterManager;
 use crate::core::types::{ClusterInfo, CreateClusterOptions, LoadImageOptions};
 
@@ -42,6 +42,10 @@ pub struct CreateArgs {
     /// CNI plugin to use (ptp or cilium)
     #[arg(long, value_enum, default_value = "ptp")]
     pub cni: CniPluginArg,
+
+    /// Kubernetes orchestrator provider
+    #[arg(long, value_enum, default_value = "kubeadm")]
+    pub kubernetes_provider: KubernetesProviderArg,
 }
 
 /// Delete a Kubernetes cluster
@@ -191,17 +195,18 @@ impl CreateArgs {
             name: self.name.clone(),
             image: self.image.clone(),
             config_file: self.config.as_ref().map(PathBuf::from),
-            kubernetes_version: None, // Use default
+            kubernetes_version: None,
             workers: if self.workers > 0 {
                 Some(self.workers)
             } else {
                 None
             },
-            control_plane_nodes: None, // Use default
+            control_plane_nodes: None,
             wait_timeout: self.wait,
             retain_on_failure: self.retain,
             skip_csr_approval: self.skip_csr_approval,
-            cni_plugin: self.cni.clone().into(), // Convert CLI arg to config enum
+            cni_plugin: self.cni.clone().into(),
+            provider: self.kubernetes_provider.clone().into(),
         };
 
         cluster_manager.create_cluster(options).await?;
@@ -1224,6 +1229,24 @@ impl From<CniPluginArg> for CniPlugin {
         match arg {
             CniPluginArg::Ptp => CniPlugin::Ptp,
             CniPluginArg::Cilium => CniPlugin::Cilium,
+        }
+    }
+}
+
+/// Kubernetes provider options for command line
+#[derive(Clone, Debug, ValueEnum)]
+pub enum KubernetesProviderArg {
+    /// kubeadm bootstrap via Apple Container VMs (default)
+    Kubeadm,
+    /// rusternetes all-in-one or multi-node via Socktainer
+    Rusternetes,
+}
+
+impl From<KubernetesProviderArg> for KubernetesProvider {
+    fn from(arg: KubernetesProviderArg) -> Self {
+        match arg {
+            KubernetesProviderArg::Kubeadm => KubernetesProvider::Kubeadm,
+            KubernetesProviderArg::Rusternetes => KubernetesProvider::Rusternetes,
         }
     }
 }

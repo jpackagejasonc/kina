@@ -3,14 +3,16 @@ use tracing::{debug, info, warn};
 
 use super::apple_container::AppleContainerClient;
 use super::kubernetes::KubernetesClient;
+use super::rusternetes::RusternetesOrchestrator;
 use super::types::{ClusterInfo, ClusterStatus, CreateClusterOptions, LoadImageOptions};
-use crate::config::Config;
+use crate::config::{Config, KubernetesProvider};
 
 /// Cluster manager handles all cluster operations
 pub struct ClusterManager {
     config: Config,
     apple_container: AppleContainerClient,
     kubernetes: KubernetesClient,
+    rusternetes: RusternetesOrchestrator,
 }
 
 impl ClusterManager {
@@ -18,11 +20,13 @@ impl ClusterManager {
     pub fn new(config: &Config) -> Result<Self> {
         let apple_container = AppleContainerClient::new(config)?;
         let kubernetes = KubernetesClient::new(config)?;
+        let rusternetes = RusternetesOrchestrator::new(config);
 
         Ok(Self {
             config: config.clone(),
             apple_container,
             kubernetes,
+            rusternetes,
         })
     }
 
@@ -38,29 +42,38 @@ impl ClusterManager {
             options.name, options.image
         );
 
-        // Check if cluster already exists
         if self.cluster_exists(&options.name).await? {
             return Err(anyhow::anyhow!("Cluster '{}' already exists", options.name));
         }
 
-        // Create the cluster using Apple Container
+        if options.provider == KubernetesProvider::Rusternetes {
+            use super::orchestrator::OrchestratorProvider;
+            let kubeconfig = self
+                .rusternetes
+                .create_cluster(&options)
+                .await
+                .context("Failed to create cluster using rusternetes")?;
+            info!(
+                "Cluster '{}' created successfully. Kubeconfig: {}",
+                options.name,
+                kubeconfig.display()
+            );
+            return Ok(());
+        }
+
+        // kubeadm path via Apple Container
         self.apple_container
             .create_cluster(&options)
             .await
             .context("Failed to create cluster using Apple Container")?;
 
-        // Wait for cluster to be ready if requested
         if let Some(timeout) = options.wait_timeout {
             self.wait_for_cluster_ready(&options.name, timeout).await?;
         } else {
-            // Even without explicit wait, give the cluster a moment to initialize
-            // This ensures the API server is ready for CSR operations
             info!("Waiting briefly for cluster API server to be ready...");
             tokio::time::sleep(std::time::Duration::from_secs(10)).await;
         }
 
-        // Auto-approve kubelet-serving CSRs after cluster creation (unless skipped)
-        // This prevents TLS errors with kubectl logs/exec commands
         if options.skip_csr_approval {
             info!("Skipping kubelet CSR auto-approval (--skip-csr-approval specified)");
             warn!(
@@ -89,6 +102,17 @@ impl ClusterManager {
     pub async fn delete_cluster(&self, name: &str) -> Result<()> {
         info!("Deleting cluster '{}'", name);
 
+        // Auto-detect rusternetes clusters by manifest presence
+        if self.rusternetes.cluster_manifest_exists(name) {
+            use super::orchestrator::OrchestratorProvider;
+            self.rusternetes
+                .delete_cluster(name)
+                .await
+                .context("Failed to delete rusternetes cluster")?;
+            info!("Cluster '{}' deleted successfully", name);
+            return Ok(());
+        }
+
         if !self.cluster_exists(name).await? {
             warn!("Cluster '{}' does not exist", name);
             return Ok(());
@@ -99,7 +123,6 @@ impl ClusterManager {
             .await
             .context("Failed to delete cluster")?;
 
-        // Clean up kubeconfig
         self.cleanup_kubeconfig(name).await?;
 
         info!("Cluster '{}' deleted successfully", name);
@@ -124,14 +147,24 @@ impl ClusterManager {
         Ok(())
     }
 
-    /// List all existing clusters
+    /// List all existing clusters (kubeadm + rusternetes)
     pub async fn list_clusters(&self) -> Result<Vec<ClusterInfo>> {
         debug!("Listing clusters");
 
-        self.apple_container
+        use super::orchestrator::OrchestratorProvider;
+
+        let mut clusters = self
+            .apple_container
             .list_clusters()
             .await
-            .context("Failed to list clusters")
+            .context("Failed to list kubeadm clusters")?;
+
+        match self.rusternetes.list_clusters().await {
+            Ok(rusternetes_clusters) => clusters.extend(rusternetes_clusters),
+            Err(e) => warn!("Failed to list rusternetes clusters: {}", e),
+        }
+
+        Ok(clusters)
     }
 
     /// Check if a cluster exists

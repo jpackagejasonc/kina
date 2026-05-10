@@ -26,6 +26,7 @@
 - [Configuration](#configuration)
 - [Apple Container Integration](#apple-container-integration)
 - [CNI Support](#cni-support)
+- [Rusternetes Provider](#rusternetes-provider)
 - [Development](#development)
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
@@ -39,6 +40,7 @@
 - ⚙️ **Flexible Configuration** - TOML-based configuration with sensible defaults
 - 📋 **Comprehensive CLI** - Rich command set for cluster management and operations
 - 🚀 **Development Ready** - Integrated development workflow with mise task automation
+- 🦀 **Rusternetes Provider** - Experimental Rust-native Kubernetes backend (single-node and multi-node)
 
 ## Requirements
 
@@ -373,6 +375,102 @@ kina leverages Apple Container technology for running Kubernetes nodes:
 kina create test-ptp --cni ptp
 kina create test-cilium --cni cilium
 ```
+
+## Rusternetes Provider
+
+kina supports [rusternetes](https://github.com/calfonso/rusternetes) as an experimental alternative Kubernetes backend. Rusternetes is a ground-up Kubernetes reimplementation in Rust. Two modes are available:
+
+| Mode | Workers flag | How it runs |
+|------|-------------|-------------|
+| Single-node | `--workers 0` (default) | All-in-one `rusternetes` binary with embedded SQLite |
+| Multi-node | `--workers N` (N ≥ 1) | Separate Apple Container containers per component |
+
+### Single-Node Mode
+
+Runs all Kubernetes components (API server, scheduler, controller manager, kubelet) inside a single `rusternetes` process on the host. No containers are involved beyond the all-in-one binary.
+
+**Prerequisites**
+
+Build and install the `rusternetes` binary from source:
+```bash
+git clone https://github.com/calfonso/rusternetes ~/git/rusternetes
+cd ~/git/rusternetes
+cargo build --release
+cp target/release/rusternetes ~/.local/bin/  # or any directory on PATH
+```
+
+**Workflow**
+
+```bash
+container system start
+
+kina create my-cluster --kubernetes-provider rusternetes
+
+export KUBECONFIG=~/.kube/kubeconfigs/my-cluster.yaml
+kubectl get nodes
+
+kina delete my-cluster
+```
+
+### Multi-Node Mode
+
+Runs each Kubernetes component (etcd, api-server, scheduler, controller-manager, kubelet × N) in its own Apple Container container, connected over a per-cluster container network.
+
+**Prerequisites**
+
+- rusternetes repo checked out at `~/git/rusternetes` (used to build component images):
+  ```bash
+  git clone https://github.com/calfonso/rusternetes ~/git/rusternetes
+  ```
+- [socktainer](https://github.com/calfonso/socktainer) installed and available on PATH — the kubelet containers need it to launch pods via a Docker-compatible socket.
+
+**Build component images (once, or after pulling new rusternetes code)**
+
+```bash
+mise run container:start      # ensure Apple Container is running
+mise run rusternetes:build    # builds kina-rusternetes-{api-server,scheduler,controller-manager,kubelet}
+                              # first run: 5–15 min (Rust multi-stage builds)
+                              # subsequent runs: fast (cached layers)
+```
+
+**Workflow**
+
+```bash
+container system start
+
+kina create my-cluster --kubernetes-provider rusternetes --workers 3
+
+export KUBECONFIG=~/.kube/kubeconfigs/my-cluster.yaml
+kubectl get nodes
+# NAME                        STATUS
+# my-cluster-control-plane    Ready
+# node-1                      Ready
+# node-2                      Ready
+# node-3                      Ready
+
+kina delete my-cluster        # stops all containers and removes the network
+```
+
+**What gets created**
+
+For `--workers 3`, kina starts these containers on a `kina-my-cluster-net` network:
+
+| Container | Image |
+|-----------|-------|
+| `kina-my-cluster-etcd` | `quay.io/coreos/etcd:v3.5.17` |
+| `kina-my-cluster-api-server` | `kina-rusternetes-api-server` |
+| `kina-my-cluster-scheduler` | `kina-rusternetes-scheduler` |
+| `kina-my-cluster-controller-manager` | `kina-rusternetes-controller-manager` |
+| `kina-my-cluster-kubelet-1` … `kubelet-3` | `kina-rusternetes-kubelet` |
+| `kina-my-cluster-kube-proxy-1` … `kube-proxy-3` | `kina-rusternetes-kube-proxy` |
+
+The kubeconfig is written to `~/.kube/kubeconfigs/my-cluster.yaml` and points to `http://127.0.0.1:6443` (HTTP, no TLS — suitable for local development only).
+
+**Current limitations**
+
+- Only one multi-node rusternetes cluster can run at a time — all clusters share the same default `api_port` (6443) and `etcd_client_port` (2379).
+- There is no `kina start` command to resume containers after a reboot; delete and recreate the cluster.
+- **Pod scheduling works but pod execution does not.** Nodes register, the scheduler assigns pods to nodes, but the kubelet cannot start pod containers. Kubernetes pod networking requires Linux network namespace sharing between containers in a pod (via CNI or the pause container model). Apple Container runs each container as an isolated VM, making cross-container namespace sharing impossible. Socktainer also does not implement Docker's `--network container:<name>` mode. Both paths the rusternetes kubelet uses for pod networking are blocked. This requires a fix in socktainer upstream before pods can run.
 
 ## Development
 

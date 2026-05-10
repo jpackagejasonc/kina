@@ -1,4 +1,4 @@
-use kina_cli::config::Config;
+use kina_cli::config::{Config, KubernetesProvider, RusternetesConfig, SocktainerConfig};
 use serde_yaml;
 use std::fs;
 use tempfile::TempDir;
@@ -469,4 +469,130 @@ fn test_kubeconfig_cleanup_command_patterns() {
         expected_delete_user_args,
         vec!["config", "delete-user", "test-cluster-admin"]
     );
+}
+
+// ===== RUSTERNETES CONFIG TESTS =====
+
+#[test]
+fn test_default_rusternetes_config() {
+    let config = RusternetesConfig::default();
+    assert_eq!(config.port, 6443);
+    assert_eq!(config.etcd_client_port, 2379);
+    assert_eq!(config.etcd_peer_port, 2380);
+    assert!(config.binary_path.is_none());
+    assert!(config.data_dir.is_none());
+    assert!(config.etcd_binary.is_none());
+}
+
+#[test]
+fn test_default_socktainer_config() {
+    let config = SocktainerConfig::default();
+    assert!(config.binary_path.is_none());
+    assert!(config.socket_path.is_none());
+}
+
+#[test]
+fn test_kubernetes_provider_default() {
+    assert_eq!(
+        Config::default().kubernetes.provider,
+        KubernetesProvider::Kubeadm
+    );
+}
+
+#[test]
+fn test_kubernetes_provider_serde_roundtrip() {
+    let provider = KubernetesProvider::Rusternetes;
+    let serialized = serde_json::to_string(&provider).unwrap();
+    assert_eq!(serialized, "\"rusternetes\"");
+
+    let deserialized: KubernetesProvider = serde_json::from_str(&serialized).unwrap();
+    assert_eq!(deserialized, KubernetesProvider::Rusternetes);
+
+    let kubeadm = KubernetesProvider::Kubeadm;
+    let serialized = serde_json::to_string(&kubeadm).unwrap();
+    assert_eq!(serialized, "\"kubeadm\"");
+}
+
+#[test]
+fn test_config_backward_compat_no_rusternetes_section() {
+    // The existing fixture has no [rusternetes] or [socktainer] sections.
+    // It must load successfully with default values for new fields.
+    let config_path = std::env::current_dir()
+        .unwrap()
+        .join("tests/fixtures/test-config.toml");
+
+    let config = Config::load_from_file(&config_path).unwrap();
+
+    assert_eq!(config.rusternetes.port, 6443);
+    assert_eq!(config.rusternetes.etcd_client_port, 2379);
+    assert_eq!(config.rusternetes.etcd_peer_port, 2380);
+    assert!(config.rusternetes.binary_path.is_none());
+    assert!(config.socktainer.binary_path.is_none());
+    assert!(config.socktainer.socket_path.is_none());
+    assert_eq!(config.kubernetes.provider, KubernetesProvider::Kubeadm);
+}
+
+#[test]
+fn test_config_with_rusternetes_section() {
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join("config.toml");
+    let data_dir = temp_dir.path().join("data");
+    let kubeconfig_dir = temp_dir.path().join("kubeconfig");
+
+    let config_content = format!(
+        r#"
+[cluster]
+default_name = "kina"
+default_image = "kina/node:v1.35.4"
+default_wait_timeout = 300
+data_dir = "{data}"
+retain_on_failure = false
+default_cni = "Ptp"
+
+[apple_container]
+[apple_container.runtime_config]
+[apple_container.network]
+network_name = "kina"
+enable_ipv6 = false
+dns_servers = []
+
+[kubernetes]
+default_version = "v1.35.4"
+default_namespace = "default"
+kubeconfig_dir = "{kube}"
+provider = "rusternetes"
+
+[rusternetes]
+port = 7443
+etcd_client_port = 3379
+etcd_peer_port = 3380
+binary_path = "/usr/local/bin/rusternetes"
+
+[socktainer]
+socket_path = "/tmp/test.sock"
+
+[logging]
+level = "info"
+format = "text"
+file_logging = false
+"#,
+        data = data_dir.display(),
+        kube = kubeconfig_dir.display(),
+    );
+
+    fs::write(&config_path, config_content).unwrap();
+    let config = Config::load_from_file(&config_path).unwrap();
+
+    assert_eq!(config.rusternetes.port, 7443);
+    assert_eq!(config.rusternetes.etcd_client_port, 3379);
+    assert_eq!(config.rusternetes.etcd_peer_port, 3380);
+    assert_eq!(
+        config.rusternetes.binary_path.unwrap().to_string_lossy(),
+        "/usr/local/bin/rusternetes"
+    );
+    assert_eq!(
+        config.socktainer.socket_path.unwrap().to_string_lossy(),
+        "/tmp/test.sock"
+    );
+    assert_eq!(config.kubernetes.provider, KubernetesProvider::Rusternetes);
 }

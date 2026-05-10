@@ -709,3 +709,61 @@ fn test_install_no_clusters() {
         .success()
         .stdout(predicate::str::contains("No clusters found"));
 }
+
+// ===== KUBERNETES PROVIDER FLAG TESTS =====
+
+#[test]
+fn test_create_kubernetes_provider_in_help() {
+    Command::cargo_bin("kina")
+        .unwrap()
+        .args(["create", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--kubernetes-provider"))
+        .stdout(predicate::str::contains("rusternetes"))
+        .stdout(predicate::str::contains("kubeadm"));
+}
+
+#[test]
+fn test_create_invalid_kubernetes_provider_rejected() {
+    Command::cargo_bin("kina")
+        .unwrap()
+        .args(["create", "--kubernetes-provider", "notavalidvalue"])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn test_create_rusternetes_provider_accepted_by_parser() {
+    // Verify clap accepts the flag value — the command will fail at runtime
+    // because Apple Container is unavailable, but it must NOT fail with a
+    // "invalid value for --kubernetes-provider" parse error.
+    let output = Command::cargo_bin("kina")
+        .unwrap()
+        .args(["create", "--kubernetes-provider", "rusternetes", "test"])
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("invalid value for '--kubernetes-provider'"),
+        "unexpected parse error: {}",
+        stderr
+    );
+}
+
+#[test]
+fn test_create_kubeadm_provider_accepted_by_parser() {
+    let output = Command::cargo_bin("kina")
+        .unwrap()
+        .args(["create", "--kubernetes-provider", "kubeadm", "test"])
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("invalid value for '--kubernetes-provider'"),
+        "unexpected parse error: {}",
+        stderr
+    );
+}

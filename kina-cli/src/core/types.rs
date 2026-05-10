@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use crate::config::CniPlugin;
+use crate::config::{CniPlugin, KubernetesProvider};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -29,6 +29,8 @@ pub struct CreateClusterOptions {
     pub skip_csr_approval: bool,
     /// CNI plugin to use
     pub cni_plugin: CniPlugin,
+    /// Kubernetes orchestrator provider
+    pub provider: KubernetesProvider,
 }
 
 /// Options for loading images into a cluster
