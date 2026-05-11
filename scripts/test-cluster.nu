@@ -65,8 +65,8 @@ log "Step 5: Deploying demo application..."
 # Get DNS domain
 let dns_raw = (do { ^container system dns list } | complete)
 let dns_domain = if $dns_raw.exit_code == 0 {
-    let first_line = ($dns_raw.stdout | lines | where { |l| not ($l | is-empty) } | first | default "")
-    $first_line | str trim
+    let first_line = ($dns_raw.stdout | lines | each { |l| $l | str trim } | where { |l| (not ($l | is-empty)) and ($l != "DOMAIN") } | first | default "")
+    $first_line
 } else {
     ""
 }

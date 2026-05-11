@@ -1533,7 +1533,7 @@ clusterCIDR: "10.244.0.0/16"
     }
 
     /// Parse kubeadm join info from kubeadm init output
-    /// Looks for: kubeadm join <endpoint> --token <token> --discovery-token-ca-cert-hash <hash>
+    /// Looks for: `kubeadm join <endpoint> --token <token> --discovery-token-ca-cert-hash <hash>`
     pub fn parse_kubeadm_join_info(output: &str, cp_ip: &str) -> Result<KubeadmJoinInfo> {
         let mut token = None;
         let mut ca_cert_hash = None;

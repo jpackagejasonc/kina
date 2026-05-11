@@ -221,12 +221,7 @@ depends = ["image:build", "image:test"]
 [tasks."image:clean"]
 description = "Clean up unused container images"
 depends = ["container:start"]
-run = "nu -c 'let r = (do { ^container image prune -f } | complete); if $r.exit_code != 0 { print \"No images to clean\" } else { print $r.stdout }'"
-
-[tasks.release]
-description = "Build and strip release binary"
-depends = ["ci", "build"]
-run = "strip target/release/kina"
+run = "nu -c 'let r = (do { ^container image prune -a } | complete); if $r.exit_code != 0 { print \"No images to clean\" } else { print $r.stdout }'"
 
 # ============================================================================
 # SECURITY
