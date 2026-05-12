@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  lint:
+  ci-and-build:
     strategy:
       matrix:
         runner: [macos-26]
@@ -34,14 +34,18 @@ jobs:
           mise trust --all
           mise install
 
-      - name: Check formatting
-        run: mise run fmt:check
+      - name: Install Apple container package
+        if: ${{ !env.ACT }}
+        env:
+          CONTAINER_VERSION: 0.12.3
+        run: |
+          curl -sLO --retry 3 --retry-all-errors https://github.com/apple/container/releases/download/${CONTAINER_VERSION}/container-${CONTAINER_VERSION}-installer-signed.pkg
+          sudo installer -pkg container-${CONTAINER_VERSION}-installer-signed.pkg -target /
+          rm -f container-${CONTAINER_VERSION}-installer-signed.pkg
+        working-directory: /tmp
 
-      - name: Run clippy
-        run: mise run lint
-
-      - name: Run tests
-        run: mise run test
+      - name: Run ci (check formatting, run clippy/lint, and test)
+        run: mise run ci
 
       - name: Build
         run: mise run build
