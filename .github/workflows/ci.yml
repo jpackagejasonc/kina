@@ -64,6 +64,8 @@ jobs:
         run: container system start --enable-kernel-install
 
       - name: Run ci (check formatting, run clippy/lint, and test)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: mise run ci
 
       - name: Build
