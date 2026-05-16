@@ -35,7 +35,7 @@
 - 🏗️ **Native Apple Container Integration** - Leverage macOS container technology for optimal performance
 - ☸️ **Kubernetes API Compatibility** - Full Kubernetes cluster functionality with kubectl integration
 - 🌐 **CNI Plugin Support** - Choose between PTP (default) and Cilium for container networking
-- 🔧 **Nginx Ingress Controller** - Built-in support for nginx-ingress installation and configuration
+- 🔧 **Traefik (Gateway API)** - Built-in support for Traefik gateway controller installation and configuration
 - ⚙️ **Flexible Configuration** - TOML-based configuration with sensible defaults
 - 📋 **Comprehensive CLI** - Rich command set for cluster management and operations
 - 🚀 **Development Ready** - Integrated development workflow with mise task automation
@@ -141,12 +141,17 @@ kubectl get nodes
 kina create demo --cni cilium --wait 300
 ```
 
-### Install Nginx Ingress Controller
+### Install Traefik (Gateway API)
 
 ```bash
-# Install nginx-ingress to your cluster
-kina install nginx-ingress --cluster my-cluster
+# Install Traefik gateway controller to your cluster
+kina install traefik --cluster my-cluster
 ```
+
+This installs the Gateway API CRDs (v1.5.1, standard channel), the Traefik
+DaemonSet, a `traefik` `GatewayClass`, and a shared `Gateway` named `traefik`
+(listening on :80 and :443) in the `traefik` namespace. Apps in any namespace
+can attach `HTTPRoute`s to it.
 
 ### Check Cluster Status
 
@@ -162,7 +167,7 @@ kina status my-cluster --verbose
 
 **Option A: Using mise (if installed)**
 ```bash
-# Create an integration test cluster with ingress and demo app
+# Create an integration test cluster with Traefik and demo app
 mise run test:cluster
 
 # Validate the most recent test cluster
@@ -174,9 +179,9 @@ mise run test:cluster:cleanup
 
 **Option B: Manual setup (without mise)**
 ```bash
-# Create cluster with nginx-ingress
+# Create cluster with Traefik
 kina create demo-cluster --wait 300
-kina install nginx-ingress --cluster demo-cluster
+kina install traefik --cluster demo-cluster
 
 # Check status
 kina status demo-cluster --verbose
@@ -184,9 +189,9 @@ kina status demo-cluster --verbose
 
 The demo cluster setup creates:
 - A timestamped cluster (e.g., `demo-20241228-143022`)
-- nginx-ingress controller installation and configuration
+- Traefik gateway controller installation and configuration
 - A sample web application with 2 replicas
-- Ingress routing for browser/curl access
+- Gateway API HTTPRoute for browser/curl access
 - Complete Apple Container networking setup
 
 ### Verify Your Setup
@@ -216,7 +221,7 @@ kubectl --kubeconfig ~/.kube/my-cluster get nodes
 ```bash
 # Create a new cluster
 kina create [NAME] [OPTIONS]
-  --image TEXT           Container image (default: kina/node:v1.35.4)
+  --image TEXT           Container image (default: kina/node:v1.35.5)
   --config FILE          Cluster configuration file
   --wait SECONDS         Wait for cluster readiness
   --retain               Retain cluster on failure
@@ -257,8 +262,7 @@ kina export [NAME] [OPTIONS]
 
 ```bash
 # Install addons
-kina install nginx-ingress --cluster NAME
-kina install ingress-nginx --cluster NAME
+kina install traefik --cluster NAME
 kina install cni --cluster NAME
 kina install metrics-server --cluster NAME
 ```
@@ -291,7 +295,7 @@ kina uses TOML configuration files located at:
 ```toml
 [cluster]
 default_name = "kina"
-default_image = "kina/node:v1.35.4"
+default_image = "kina/node:v1.35.5"
 default_wait_timeout = 300
 data_dir = "~/.local/share/kina"
 retain_on_failure = false
@@ -311,7 +315,7 @@ enable_ipv6 = false
 dns_servers = []
 
 [kubernetes]
-default_version = "v1.35.4"
+default_version = "v1.35.5"
 kubectl_path = null  # Auto-detected
 default_namespace = "default"
 kubeconfig_dir = "~/.config/kina/kubeconfig"
@@ -412,13 +416,13 @@ mise run image:clean
 **Node Image Components:**
 - **Base System**: Debian (13-slim) with systemd for container orchestration
 - **Container Runtime**: containerd configured for Apple Container integration
-- **Kubernetes Components**: kubelet, kubeadm, kubectl (v1.35.4)
+- **Kubernetes Components**: kubelet, kubeadm, kubectl (v1.35.5)
 - **CNI Plugins**: PTP and Cilium support
 - **Init Scripts**: Apple Container-specific initialization and networking setup
 
-The built images are tagged as `kina/node:v1.35.4` and can be used with:
+The built images are tagged as `kina/node:v1.35.5` and can be used with:
 ```bash
-kina create my-cluster --image kina/node:v1.35.4
+kina create my-cluster --image kina/node:v1.35.5
 ```
 
 ### Task Tracking
@@ -477,7 +481,7 @@ mise run test:cli                # Basic CLI functionality tests
 mise tasks                       # List all available mise tasks
 
 # Integration testing workflows
-mise run test:cluster            # Create test cluster with ingress and demo app
+mise run test:cluster            # Create test cluster with Traefik and demo app
 mise run test:cluster:validate   # Validate most recent test cluster
 mise run test:cluster:cleanup    # Clean up all test clusters
 ```

@@ -1,0 +1,275 @@
+# Virtual Hosts Example (Gateway API)
+#
+# Demonstrates:
+# - Multiple host-based HTTPRoutes attached to the same Gateway
+# - Different applications for different domains
+#
+# Deploy with: kubectl apply -f virtual-hosts.yaml
+# Test with:
+#   curl -H "Host: webapp.local" http://<cluster-ip>
+#   curl -H "Host: api.local" http://<cluster-ip>
+#   curl -H "Host: blog.local" http://<cluster-ip>
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: webapp
+  template:
+    metadata:
+      labels:
+        app: webapp
+    spec:
+      containers:
+      - name: web
+        image: joseluisq/static-web-server:2.42.0
+        ports:
+        - containerPort: 80
+        env:
+        - name: SERVER_ROOT
+          value: /public
+        - name: SERVER_PORT
+          value: "80"
+        volumeMounts:
+        - name: webapp-content
+          mountPath: /public
+          readOnly: true
+      volumes:
+      - name: webapp-content
+        configMap:
+          name: webapp-content
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: webapp-content
+  namespace: default
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html>
+    <head><title>Main Web App</title></head>
+    <body>
+        <h1>🌐 Main Web Application</h1>
+        <p>Welcome to the main web application!</p>
+        <p><strong>Host:</strong> webapp.local</p>
+    </body>
+    </html>
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webapp-service
+  namespace: default
+spec:
+  selector:
+    app: webapp
+  ports:
+  - port: 80
+    targetPort: 80
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-service-app
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-service-app
+  template:
+    metadata:
+      labels:
+        app: api-service-app
+    spec:
+      containers:
+      - name: web
+        image: joseluisq/static-web-server:2.42.0
+        ports:
+        - containerPort: 80
+        env:
+        - name: SERVER_ROOT
+          value: /public
+        - name: SERVER_PORT
+          value: "80"
+        volumeMounts:
+        - name: api-content
+          mountPath: /public
+          readOnly: true
+      volumes:
+      - name: api-content
+        configMap:
+          name: api-service-content
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-service-content
+  namespace: default
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html>
+    <head><title>API Service</title></head>
+    <body>
+        <h1>🔌 API Service</h1>
+        <p>RESTful API service endpoint</p>
+        <p><strong>Host:</strong> api.local</p>
+    </body>
+    </html>
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-service
+  namespace: default
+spec:
+  selector:
+    app: api-service-app
+  ports:
+  - port: 80
+    targetPort: 80
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blog-app
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: blog-app
+  template:
+    metadata:
+      labels:
+        app: blog-app
+    spec:
+      containers:
+      - name: web
+        image: joseluisq/static-web-server:2.42.0
+        ports:
+        - containerPort: 80
+        env:
+        - name: SERVER_ROOT
+          value: /public
+        - name: SERVER_PORT
+          value: "80"
+        volumeMounts:
+        - name: blog-content
+          mountPath: /public
+          readOnly: true
+      volumes:
+      - name: blog-content
+        configMap:
+          name: blog-content
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: blog-content
+  namespace: default
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html>
+    <head><title>Company Blog</title></head>
+    <body>
+        <h1>📝 Company Blog</h1>
+        <p><strong>Host:</strong> blog.local</p>
+        <p>Latest news and updates.</p>
+    </body>
+    </html>
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: blog-service
+  namespace: default
+spec:
+  selector:
+    app: blog-app
+  ports:
+  - port: 80
+    targetPort: 80
+
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: webapp-route
+  namespace: default
+spec:
+  parentRefs:
+  - name: traefik
+    namespace: traefik
+    sectionName: web
+  hostnames:
+  - webapp.local
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: webapp-service
+      port: 80
+
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: api-route
+  namespace: default
+spec:
+  parentRefs:
+  - name: traefik
+    namespace: traefik
+    sectionName: web
+  hostnames:
+  - api.local
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: api-service
+      port: 80
+
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: blog-route
+  namespace: default
+spec:
+  parentRefs:
+  - name: traefik
+    namespace: traefik
+    sectionName: web
+  hostnames:
+  - blog.local
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: blog-service
+      port: 80

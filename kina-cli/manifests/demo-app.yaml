@@ -16,11 +16,14 @@ spec:
       labels:
         app: kina-demo-app
     spec:
-      containers:
-      - name: nginx
-        image: nginx:alpine
-        ports:
-        - containerPort: 80
+      initContainers:
+      - name: render-template
+        image: alpine:3.22.4
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            apk add --no-cache gettext >/dev/null
+            envsubst '$MY_POD_NAME $MY_POD_IP $MY_NODE_NAME' < /templates/index.html > /rendered/index.html
         env:
         - name: MY_POD_NAME
           valueFrom:
@@ -34,19 +37,36 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: spec.nodeName
-        command: ["/bin/sh", "-c"]
-        args:
-          - |
-            envsubst '$MY_POD_NAME $MY_POD_IP $MY_NODE_NAME' < /tmp/templates/index.html > /usr/share/nginx/html/index.html
-            echo 'server { listen 80; location / { root /usr/share/nginx/html; add_header Connection "close" always; add_header Cache-Control "no-store" always; } }' > /etc/nginx/conf.d/default.conf
-            nginx -g 'daemon off;'
         volumeMounts:
         - name: demo-template
-          mountPath: /tmp/templates
+          mountPath: /templates
+          readOnly: true
+        - name: rendered
+          mountPath: /rendered
+      containers:
+      - name: web
+        image: joseluisq/static-web-server:2.42.0
+        ports:
+        - containerPort: 80
+        env:
+        - name: SERVER_ROOT
+          value: /public
+        - name: SERVER_PORT
+          value: "80"
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "32Mi"
+        volumeMounts:
+        - name: rendered
+          mountPath: /public
+          readOnly: true
       volumes:
       - name: demo-template
         configMap:
           name: kina-demo-content
+      - name: rendered
+        emptyDir: {}
 
 ---
 apiVersion: v1
@@ -194,8 +214,8 @@ data:
                         <div class="info-value">${MY_NODE_NAME}</div>
                     </div>
                     <div class="info-card">
-                        <div class="info-label">Ingress</div>
-                        <div class="info-value">nginx-ingress</div>
+                        <div class="info-label">Gateway</div>
+                        <div class="info-value">traefik</div>
                     </div>
                 </div>
             </div>
@@ -226,7 +246,7 @@ data:
                 </div>
                 <div class="feature">
                     <span class="feature-icon">&#x1F310;</span>
-                    <span>NGINX Ingress Controller (nginx.org) installed</span>
+                    <span>Traefik gateway controller (Gateway API) installed</span>
                 </div>
                 <div class="feature">
                     <span class="feature-icon">&#x1F4E6;</span>
@@ -234,7 +254,7 @@ data:
                 </div>
                 <div class="feature">
                     <span class="feature-icon">&#x1F517;</span>
-                    <span>Ingress routing configured and working</span>
+                    <span>HTTPRoute configured and working</span>
                 </div>
             </div>
 
@@ -266,24 +286,23 @@ spec:
   type: ClusterIP
 
 ---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
 metadata:
-  name: kina-demo-ingress
+  name: kina-demo-route
   namespace: default
-  annotations:
-    nginx.org/ssl-redirect: "false"
-    nginx.org/server-tokens: "false"
 spec:
-  ingressClassName: nginx
+  parentRefs:
+  - name: traefik
+    namespace: traefik
+    sectionName: web
+  hostnames:
+  - ${CLUSTER_NAME}-control-plane.${DNS_DOMAIN}
   rules:
-  - host: ${CLUSTER_NAME}-control-plane.${DNS_DOMAIN}
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: kina-demo-service
-            port:
-              number: 80
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: kina-demo-service
+      port: 80

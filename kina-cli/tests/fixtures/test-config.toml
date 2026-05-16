@@ -1,6 +1,6 @@
 [cluster]
 default_name = "test-cluster"
-default_image = "kina/node:v1.35.4"
+default_image = "kina/node:v1.35.5"
 default_wait_timeout = 60
 data_dir = "/tmp/kina-test-data"
 retain_on_failure = false
@@ -19,7 +19,7 @@ enable_ipv6 = false
 dns_servers = []
 
 [kubernetes]
-default_version = "v1.35.4"
+default_version = "v1.35.5"
 default_namespace = "default"
 kubeconfig_dir = "/tmp/kina-test-kubeconfig"
 

@@ -16,7 +16,7 @@ pub struct CreateArgs {
     pub name: String,
 
     /// Container image to use for the cluster
-    #[arg(long, default_value = "kina/node:v1.35.4")]
+    #[arg(long, default_value = "kina/node:v1.35.5")]
     pub image: String,
 
     /// Configuration file for cluster creation
@@ -176,9 +176,9 @@ pub enum StatusOutputFormat {
 /// Supported addon types
 #[derive(clap::ValueEnum, Clone, Debug)]
 pub enum AddonType {
-    /// NGINX Ingress Controller (nginx.org)
-    #[value(name = "nginx-ingress")]
-    NginxIngress,
+    /// Traefik gateway controller (Gateway API)
+    #[value(name = "traefik")]
+    Traefik,
 }
 
 impl CreateArgs {
@@ -439,8 +439,8 @@ impl InstallArgs {
         );
 
         match &self.addon {
-            AddonType::NginxIngress => {
-                self.install_nginx_ingress(&cluster_manager).await?;
+            AddonType::Traefik => {
+                self.install_traefik(&cluster_manager).await?;
             }
         }
 
@@ -451,8 +451,8 @@ impl InstallArgs {
         Ok(())
     }
 
-    async fn install_nginx_ingress(&self, _cluster_manager: &ClusterManager) -> Result<()> {
-        info!("Installing NGINX Ingress Controller (nginx.org) with complete deployment");
+    async fn install_traefik(&self, _cluster_manager: &ClusterManager) -> Result<()> {
+        info!("Installing Traefik gateway controller (Gateway API) with complete deployment");
 
         // Use the kubeconfig file path directly instead of content
         let home_dir = std::env::var("HOME").context("HOME environment variable not set")?;
@@ -474,28 +474,31 @@ impl InstallArgs {
         let manifest_dir = current_dir
             .join("kina-cli")
             .join("manifests")
-            .join("nginx-ingress");
+            .join("traefik");
 
         if !manifest_dir.exists() {
             return Err(anyhow::anyhow!(
-                "Nginx-ingress manifest directory not found: {}",
+                "Traefik manifest directory not found: {}",
                 manifest_dir.display()
             ));
         }
 
         // Define all required manifests in deployment order using local files
         let manifest_files = [
-            // 1. Common resources (namespace, RBAC, ServiceAccount)
+            // 1. Gateway API CRDs (must be installed first)
+            ("gateway-api-crds.yaml", "Gateway API CRDs"),
+            // 2. Common resources (namespace, ServiceAccount)
             ("ns-and-sa.yaml", "namespace and ServiceAccount"),
+            // 3. RBAC
             ("rbac.yaml", "RBAC resources"),
-            // 2. CRDs (Custom Resource Definitions)
-            ("crds.yaml", "Custom Resource Definitions"),
-            // 3. ConfigMap with default configuration
-            ("nginx-config.yaml", "default configuration"),
-            // 4. IngressClass
-            ("ingress-class.yaml", "IngressClass"),
-            // 5. DaemonSet deployment (better for single-node clusters)
-            ("nginx-ingress-daemonset.yaml", "DaemonSet deployment"),
+            // 4. Static configuration
+            ("traefik-config.yaml", "Traefik configuration"),
+            // 5. GatewayClass
+            ("gatewayclass.yaml", "GatewayClass"),
+            // 6. DaemonSet deployment (better for single-node clusters)
+            ("traefik-daemonset.yaml", "DaemonSet deployment"),
+            // 7. Shared Gateway (HTTP/HTTPS listeners, all namespaces)
+            ("gateway.yaml", "Gateway"),
         ];
 
         // Apply each manifest in order
@@ -552,8 +555,8 @@ impl InstallArgs {
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         }
 
-        info!("NGINX Ingress Controller (DaemonSet) installed successfully");
-        info!("Waiting for nginx-ingress pods to start...");
+        info!("Traefik gateway controller (DaemonSet) installed successfully");
+        info!("Waiting for traefik pods to start...");
 
         // Wait a moment for pods to be created
         tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
@@ -957,8 +960,8 @@ impl StatusArgs {
         // Check CNI status
         let cni_ready = self.check_cni_ready(&kubeconfig_str).await?;
 
-        // Check ingress controller
-        let ingress_ready = self.check_ingress_ready(&kubeconfig_str).await?;
+        // Check gateway controller
+        let ingress_ready = self.check_gateway_ready(&kubeconfig_str).await?;
 
         // Overall readiness assessment
         let overall_ready = nodes_ready && core_pods_ready && cni_ready && ingress_ready;
@@ -1122,8 +1125,8 @@ impl StatusArgs {
         Ok(false)
     }
 
-    async fn check_ingress_ready(&self, kubeconfig_str: &str) -> Result<bool> {
-        // Check for nginx-ingress pods
+    async fn check_gateway_ready(&self, kubeconfig_str: &str) -> Result<bool> {
+        // Check for traefik pods
         if let Ok(output) = std::process::Command::new("kubectl")
             .args([
                 "--kubeconfig",
@@ -1131,7 +1134,7 @@ impl StatusArgs {
                 "get",
                 "pods",
                 "-n",
-                "nginx-ingress",
+                "traefik",
                 "--no-headers",
             ])
             .output()
@@ -1141,35 +1144,35 @@ impl StatusArgs {
                 let lines: Vec<&str> = stdout.lines().collect();
 
                 if lines.is_empty() {
-                    println!("🌍 Ingress Controller: Not found ❌");
+                    println!("🌍 Gateway Controller: Not found ❌");
                     return Ok(false);
                 }
 
-                let mut ready_ingress = 0;
-                let total_ingress = lines.len();
+                let mut ready_pods = 0;
+                let total_pods = lines.len();
 
                 for line in lines {
                     let parts: Vec<&str> = line.split_whitespace().collect();
                     if parts.len() >= 3 {
                         let ready_status = parts[1];
                         if ready_status.starts_with("1/1") {
-                            ready_ingress += 1;
+                            ready_pods += 1;
                         }
                     }
                 }
 
-                let ingress_ready = ready_ingress == total_ingress;
+                let pods_ready = ready_pods == total_pods;
                 println!(
-                    "🌍 Ingress Controller: {}/{} Ready {}",
-                    ready_ingress,
-                    total_ingress,
-                    if ingress_ready { "✅" } else { "❌" }
+                    "🌍 Gateway Controller: {}/{} Ready {}",
+                    ready_pods,
+                    total_pods,
+                    if pods_ready { "✅" } else { "❌" }
                 );
-                return Ok(ingress_ready);
+                return Ok(pods_ready);
             }
         }
 
-        println!("🌍 Ingress Controller: Unknown ❌");
+        println!("🌍 Gateway Controller: Unknown ❌");
         Ok(false)
     }
 }

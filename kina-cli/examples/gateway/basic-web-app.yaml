@@ -1,12 +1,12 @@
-# Basic Web Application with NGINX Ingress
+# Basic Web Application with Gateway API + Traefik
 #
-# This example demonstrates:
-# - Simple web app deployment with nginx
+# Demonstrates:
+# - Simple web app deployment
 # - Service to expose the app
-# - Ingress rule with host-based routing
+# - HTTPRoute attached to the shared `traefik` Gateway in the `traefik` namespace
 #
 # Deploy with: kubectl apply -f basic-web-app.yaml
-# Test with: curl -H "Host: myapp.local" http://<cluster-ip>
+# Test with:   curl -H "Host: myapp.local" http://<cluster-ip>
 
 ---
 apiVersion: apps/v1
@@ -27,13 +27,19 @@ spec:
         app: basic-web-app
     spec:
       containers:
-      - name: nginx
-        image: nginx:alpine
+      - name: web
+        image: joseluisq/static-web-server:2.42.0
         ports:
         - containerPort: 80
+        env:
+        - name: SERVER_ROOT
+          value: /public
+        - name: SERVER_PORT
+          value: "80"
         volumeMounts:
         - name: html-content
-          mountPath: /usr/share/nginx/html
+          mountPath: /public
+          readOnly: true
       volumes:
       - name: html-content
         configMap:
@@ -65,7 +71,7 @@ data:
                 <p>Congratulations! Your basic web application is running successfully.</p>
                 <p><strong>Deployment:</strong> basic-web-app</p>
                 <p><strong>Replicas:</strong> 2</p>
-                <p><strong>Ingress:</strong> myapp.local</p>
+                <p><strong>Host:</strong> myapp.local</p>
             </div>
         </div>
     </body>
@@ -89,24 +95,23 @@ spec:
   type: ClusterIP
 
 ---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
 metadata:
-  name: basic-web-app-ingress
+  name: basic-web-app-route
   namespace: default
-  annotations:
-    nginx.org/ssl-redirect: "false"
-    nginx.org/server-tokens: "false"
 spec:
-  ingressClassName: nginx
+  parentRefs:
+  - name: traefik
+    namespace: traefik
+    sectionName: web
+  hostnames:
+  - myapp.local
   rules:
-  - host: myapp.local
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: basic-web-app-service
-            port:
-              number: 80
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: basic-web-app-service
+      port: 80

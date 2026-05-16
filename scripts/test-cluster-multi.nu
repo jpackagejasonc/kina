@@ -87,23 +87,23 @@ if $status_result.exit_code == 0 {
     warn "Could not get kina status"
 }
 
-# Step 6: Install nginx-ingress
-log "Step 6: Installing nginx-ingress controller..."
-let install_result = (do { ^cargo run --release --manifest-path kina-cli/Cargo.toml -- install nginx-ingress --cluster $cluster_name } | complete)
+# Step 6: Install Traefik (Gateway API)
+log "Step 6: Installing Traefik gateway controller..."
+let install_result = (do { ^cargo run --release --manifest-path kina-cli/Cargo.toml -- install traefik --cluster $cluster_name } | complete)
 print $install_result.stdout
 if $install_result.exit_code != 0 {
     print $install_result.stderr
-    err "Failed to install nginx-ingress"
+    err "Failed to install traefik"
 }
-log "nginx-ingress installed"
+log "traefik installed"
 
-# Step 7: Wait for nginx-ingress to be ready
-log "Step 7: Waiting for nginx-ingress to be ready..."
-let wait_result = (do { ^kubectl $"--kubeconfig=($kubeconfig_path)" wait --for=condition=Ready pods -n nginx-ingress --all --timeout=180s } | complete)
+# Step 7: Wait for Traefik to be ready
+log "Step 7: Waiting for traefik to be ready..."
+let wait_result = (do { ^kubectl $"--kubeconfig=($kubeconfig_path)" wait --for=condition=Ready pods -n traefik --all --timeout=240s } | complete)
 if $wait_result.exit_code != 0 {
-    warn "nginx-ingress did not become ready in time"
+    warn "traefik did not become ready in time"
 } else {
-    log "nginx-ingress is ready"
+    log "traefik is ready"
 }
 
 # Step 8: Deploy demo application
