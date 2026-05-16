@@ -30,6 +30,8 @@ jobs:
             rust-${{ matrix.runner }}-
 
       - name: Install tools
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mise trust --all
           mise install
