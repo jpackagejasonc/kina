@@ -14,8 +14,8 @@ if $build.exit_code != 0 {
     exit 1
 }
 
-let images = (do { ^container image list } | complete)
-if ($images.stdout | str contains $image_tag) {
+let images = (do { ^container image inspect $image_tag } | complete).exit_code == 0
+if ($images) {
     print $"Successfully built image: ($image_tag)"
 } else {
     print "Failed to build image"

@@ -9,8 +9,8 @@ RUST_BACKTRACE = "1"
 rust = "stable"
 cilium-cli = "0.19.2"
 "github:nushell/nushell" = { version = "0.112.2", exe = "nu" }
-act = "0.2.87"
-"github:gastownhall/beads" = "1.0.3"
+act = "0.2.88"
+"github:gastownhall/beads" = "1.0.4"
 "cargo:cargo-audit" = "0.22.1"
 "cargo:cargo-tarpaulin" = "0.35.4"
 
@@ -221,12 +221,7 @@ depends = ["image:build", "image:test"]
 [tasks."image:clean"]
 description = "Clean up unused container images"
 depends = ["container:start"]
-run = "nu -c 'let r = (do { ^container image prune -f } | complete); if $r.exit_code != 0 { print \"No images to clean\" } else { print $r.stdout }'"
-
-[tasks.release]
-description = "Build and strip release binary"
-depends = ["ci", "build"]
-run = "strip target/release/kina"
+run = "nu -c 'let r = (do { ^container image prune -a } | complete); if $r.exit_code != 0 { print \"No images to clean\" } else { print $r.stdout }'"
 
 # ============================================================================
 # SECURITY

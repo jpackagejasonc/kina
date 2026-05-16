@@ -3,8 +3,8 @@
 let image_tag = "kina/node:v1.35.4"
 print $"Testing node image: ($image_tag)"
 
-let images = (do { ^container image list } | complete)
-if not ($images.stdout | str contains $image_tag) {
+let images = (do { ^container image inspect $image_tag } | complete).exit_code == 0
+if not ($images) {
     print $"Image ($image_tag) not found. Run 'mise run image:build' first."
     exit 1
 }
@@ -16,7 +16,7 @@ let timestamp = (date now | format date "%s")
 let test_container = $"kina-node-test-($timestamp)"
 
 let result = (do {
-    ^container run --name $test_container --rm -it $image_tag /bin/bash -c "
+    ^container run --name $test_container --rm --entrypoint /bin/bash $image_tag -c "
         echo 'Testing container functionality...'
         echo 'Checking systemd...'
         systemctl --version

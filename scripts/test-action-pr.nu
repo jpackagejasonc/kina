@@ -2,7 +2,6 @@
 
 let platform_flags = [
     "-P" "macos-26=-self-hosted"
-    "-P" "macos-15=-self-hosted"
 ]
 
 act pull_request ...$platform_flags
