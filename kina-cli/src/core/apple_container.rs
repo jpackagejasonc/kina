@@ -741,7 +741,7 @@ impl AppleContainerClient {
                                 image: labels
                                     .get("io.kina.image")
                                     .and_then(|v| v.as_str())
-                                    .unwrap_or("kina/node:v1.35.4")
+                                    .unwrap_or("kina/node:v1.35.5")
                                     .to_string(),
                                 status: if state == "running" {
                                     ClusterStatus::Running
@@ -1372,7 +1372,7 @@ nodeRegistration:
 ---
 apiVersion: kubeadm.k8s.io/v1beta4
 kind: ClusterConfiguration
-kubernetesVersion: v1.35.4
+kubernetesVersion: v1.35.5
 clusterName: "{cluster_name}"
 controlPlaneEndpoint: "{vm_ip}:6443"
 apiServer:

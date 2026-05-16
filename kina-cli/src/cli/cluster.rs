@@ -16,7 +16,7 @@ pub struct CreateArgs {
     pub name: String,
 
     /// Container image to use for the cluster
-    #[arg(long, default_value = "kina/node:v1.35.4")]
+    #[arg(long, default_value = "kina/node:v1.35.5")]
     pub image: String,
 
     /// Configuration file for cluster creation

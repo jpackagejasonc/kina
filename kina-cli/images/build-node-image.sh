@@ -6,7 +6,7 @@ set -e
 # Uses Apple Container CLI (NOT Docker)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-IMAGE_TAG="kina/node:v1.35.4"
+IMAGE_TAG="kina/node:v1.35.5"
 
 echo "🏗️  Building Kina Kubernetes node image..."
 echo "📁 Working directory: $SCRIPT_DIR"

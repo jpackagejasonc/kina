@@ -221,7 +221,7 @@ kubectl --kubeconfig ~/.kube/my-cluster get nodes
 ```bash
 # Create a new cluster
 kina create [NAME] [OPTIONS]
-  --image TEXT           Container image (default: kina/node:v1.35.4)
+  --image TEXT           Container image (default: kina/node:v1.35.5)
   --config FILE          Cluster configuration file
   --wait SECONDS         Wait for cluster readiness
   --retain               Retain cluster on failure
@@ -295,7 +295,7 @@ kina uses TOML configuration files located at:
 ```toml
 [cluster]
 default_name = "kina"
-default_image = "kina/node:v1.35.4"
+default_image = "kina/node:v1.35.5"
 default_wait_timeout = 300
 data_dir = "~/.local/share/kina"
 retain_on_failure = false
@@ -315,7 +315,7 @@ enable_ipv6 = false
 dns_servers = []
 
 [kubernetes]
-default_version = "v1.35.4"
+default_version = "v1.35.5"
 kubectl_path = null  # Auto-detected
 default_namespace = "default"
 kubeconfig_dir = "~/.config/kina/kubeconfig"
@@ -416,13 +416,13 @@ mise run image:clean
 **Node Image Components:**
 - **Base System**: Debian (13-slim) with systemd for container orchestration
 - **Container Runtime**: containerd configured for Apple Container integration
-- **Kubernetes Components**: kubelet, kubeadm, kubectl (v1.35.4)
+- **Kubernetes Components**: kubelet, kubeadm, kubectl (v1.35.5)
 - **CNI Plugins**: PTP and Cilium support
 - **Init Scripts**: Apple Container-specific initialization and networking setup
 
-The built images are tagged as `kina/node:v1.35.4` and can be used with:
+The built images are tagged as `kina/node:v1.35.5` and can be used with:
 ```bash
-kina create my-cluster --image kina/node:v1.35.4
+kina create my-cluster --image kina/node:v1.35.5
 ```
 
 ### Task Tracking
