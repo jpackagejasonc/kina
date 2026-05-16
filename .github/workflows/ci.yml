@@ -34,7 +34,18 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mise trust --all
-          mise install
+
+      - name: Install kubectl
+        if: ${{ !env.ACT }}
+        env:
+          KUBECTL_VERSION: v1.35.5
+        run: |
+          curl -sLO --retry 3 --retry-all-errors "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/darwin/arm64/kubectl"
+          curl -sLO --retry 3 --retry-all-errors "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/darwin/arm64/kubectl.sha256"
+          sha256 -c $(cat kubectl.sha256) kubectl
+          rm -f kubectl.sha256
+          chmod 0755 kubectl
+          sudo mv kubectl /usr/bin
 
       - name: Install Apple container package
         if: ${{ !env.ACT }}
@@ -42,7 +53,7 @@ jobs:
           CONTAINER_SHA256: 83f363126ac1f064588de39cd6b474340d489c1926492a2c4e59c4d54aa6d8e3
           CONTAINER_VERSION: 0.12.3
         run: |
-          curl -sLO --retry 3 --retry-all-errors https://github.com/apple/container/releases/download/${CONTAINER_VERSION}/container-${CONTAINER_VERSION}-installer-signed.pkg
+          curl -sLO --retry 3 --retry-all-errors "https://github.com/apple/container/releases/download/${CONTAINER_VERSION}/container-${CONTAINER_VERSION}-installer-signed.pkg"
           sha256 -c $CONTAINER_SHA256 container-${CONTAINER_VERSION}-installer-signed.pkg
           sudo installer -pkg container-${CONTAINER_VERSION}-installer-signed.pkg -target /
           rm -f container-${CONTAINER_VERSION}-installer-signed.pkg
