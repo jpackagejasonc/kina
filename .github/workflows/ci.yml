@@ -45,7 +45,7 @@ jobs:
           sha256 -c $(cat kubectl.sha256) kubectl
           rm -f kubectl.sha256
           chmod 0755 kubectl
-          sudo mv kubectl /usr/bin
+          sudo mv kubectl /usr/local/bin
 
       - name: Install Apple container package
         if: ${{ !env.ACT }}
