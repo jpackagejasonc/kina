@@ -338,4 +338,10 @@ impl ClusterManager {
         );
         Ok(())
     }
+
+    pub async fn apply_manifest(&self, kubeconfig_path: &str, manifest: &str) -> Result<()> {
+        self.kubernetes
+            .apply_manifest(kubeconfig_path, manifest)
+            .await
+    }
 }

@@ -749,7 +749,17 @@ impl AppleContainerClient {
                                     ClusterStatus::Stopped
                                 },
                                 nodes: Vec::new(),
-                                created: "unknown".to_string(), // Container format doesn't expose creation time easily
+                                created: container
+                                    .get("startedDate")
+                                    .and_then(|v| v.as_f64())
+                                    .map(|mac_ts| {
+                                        // startedDate is Mac absolute time (seconds since 2001-01-01)
+                                        let unix_ts = mac_ts as i64 + 978_307_200;
+                                        chrono::DateTime::from_timestamp(unix_ts, 0)
+                                            .map(|dt| dt.format("%Y-%m-%d %H:%M UTC").to_string())
+                                            .unwrap_or_else(|| "unknown".to_string())
+                                    })
+                                    .unwrap_or_else(|| "unknown".to_string()),
                                 kubeconfig_path: None,
                             });
 
@@ -1804,7 +1814,7 @@ rm -f cilium-linux-${CLI_ARCH}.tar.gz cilium-linux-${CLI_ARCH}.tar.gz.sha256sum
         // Now install Cilium using the standard cilium install command with minimal Apple Container fix
         // Disable local node route management to fix: "address family not supported by protocol"
         let cilium_install_cmd = format!(
-            "{} && cilium install --version 1.18.2 --set enableLocalNodeRoute=false",
+            "{} && cilium install --version 1.19.4 --set enableLocalNodeRoute=false",
             kubeconfig_env
         );
 

@@ -179,6 +179,9 @@ pub enum AddonType {
     /// Traefik gateway controller (Gateway API)
     #[value(name = "traefik")]
     Traefik,
+    /// Kubernetes Metrics Server (enables kubectl top and HPA)
+    #[value(name = "metrics-server")]
+    MetricsServer,
 }
 
 impl CreateArgs {
@@ -442,6 +445,9 @@ impl InstallArgs {
             AddonType::Traefik => {
                 self.install_traefik(&cluster_manager).await?;
             }
+            AddonType::MetricsServer => {
+                self.install_metrics_server(&cluster_manager).await?;
+            }
         }
 
         println!(
@@ -451,7 +457,7 @@ impl InstallArgs {
         Ok(())
     }
 
-    async fn install_traefik(&self, _cluster_manager: &ClusterManager) -> Result<()> {
+    async fn install_traefik(&self, cluster_manager: &ClusterManager) -> Result<()> {
         info!("Installing Traefik gateway controller (Gateway API) with complete deployment");
 
         // Use the kubeconfig file path directly instead of content
@@ -469,87 +475,49 @@ impl InstallArgs {
 
         let kubeconfig_str = kubeconfig_path.to_string_lossy();
 
-        // Get the current directory to find manifest files
-        let current_dir = std::env::current_dir().context("Failed to get current directory")?;
-        let manifest_dir = current_dir
-            .join("kina-cli")
-            .join("manifests")
-            .join("traefik");
-
-        if !manifest_dir.exists() {
-            return Err(anyhow::anyhow!(
-                "Traefik manifest directory not found: {}",
-                manifest_dir.display()
-            ));
-        }
-
-        // Define all required manifests in deployment order using local files
-        let manifest_files = [
-            // 1. Gateway API CRDs (must be installed first)
-            ("gateway-api-crds.yaml", "Gateway API CRDs"),
-            // 2. Common resources (namespace, ServiceAccount)
-            ("ns-and-sa.yaml", "namespace and ServiceAccount"),
-            // 3. RBAC
-            ("rbac.yaml", "RBAC resources"),
-            // 4. Static configuration
-            ("traefik-config.yaml", "Traefik configuration"),
-            // 5. GatewayClass
-            ("gatewayclass.yaml", "GatewayClass"),
-            // 6. DaemonSet deployment (better for single-node clusters)
-            ("traefik-daemonset.yaml", "DaemonSet deployment"),
-            // 7. Shared Gateway (HTTP/HTTPS listeners, all namespaces)
-            ("gateway.yaml", "Gateway"),
+        const MANIFESTS: &[(&str, &str)] = &[
+            (
+                "Gateway API CRDs",
+                include_str!("../../manifests/traefik/gateway-api-crds.yaml"),
+            ),
+            (
+                "namespace and ServiceAccount",
+                include_str!("../../manifests/traefik/ns-and-sa.yaml"),
+            ),
+            (
+                "RBAC resources",
+                include_str!("../../manifests/traefik/rbac.yaml"),
+            ),
+            (
+                "Traefik configuration",
+                include_str!("../../manifests/traefik/traefik-config.yaml"),
+            ),
+            (
+                "GatewayClass",
+                include_str!("../../manifests/traefik/gatewayclass.yaml"),
+            ),
+            (
+                "DaemonSet deployment",
+                include_str!("../../manifests/traefik/traefik-daemonset.yaml"),
+            ),
+            (
+                "Gateway",
+                include_str!("../../manifests/traefik/gateway.yaml"),
+            ),
         ];
 
-        // Apply each manifest in order
-        for (i, (manifest_file, description)) in manifest_files.iter().enumerate() {
-            let manifest_path = manifest_dir.join(manifest_file);
-
-            if !manifest_path.exists() {
-                warn!(
-                    "Manifest file not found: {}, skipping",
-                    manifest_path.display()
-                );
-                continue;
-            }
-
+        for (i, (description, content)) in MANIFESTS.iter().enumerate() {
             info!(
-                "Applying manifest {}/{}: {} ({})",
+                "Applying manifest {}/{}: {}",
                 i + 1,
-                manifest_files.len(),
-                manifest_file,
+                MANIFESTS.len(),
                 description
             );
 
-            let output = std::process::Command::new("kubectl")
-                .args([
-                    "--kubeconfig",
-                    &kubeconfig_str,
-                    "apply",
-                    "-f",
-                    &manifest_path.to_string_lossy(),
-                ])
-                .output()
-                .context(format!("Failed to apply manifest: {}", manifest_file))?;
-
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                let stdout = String::from_utf8_lossy(&output.stdout);
-
-                // Some resources might already exist or have expected warnings
-                if stderr.contains("already exists") || stderr.contains("Warning") {
-                    info!("Applied {} (with warnings/already exists)", manifest_file);
-                } else {
-                    return Err(anyhow::anyhow!(
-                        "Failed to apply {}: {}\nStdout: {}",
-                        manifest_file,
-                        stderr,
-                        stdout
-                    ));
-                }
-            } else {
-                info!("Successfully applied {}", manifest_file);
-            }
+            cluster_manager
+                .apply_manifest(&kubeconfig_str, content)
+                .await
+                .context(format!("Failed to apply {}", description))?;
 
             // Small delay between manifest applications
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
@@ -561,6 +529,46 @@ impl InstallArgs {
         // Wait a moment for pods to be created
         tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
+        Ok(())
+    }
+
+    async fn install_metrics_server(&self, cluster_manager: &ClusterManager) -> Result<()> {
+        info!("Installing metrics-server v0.8.1");
+
+        let home_dir = std::env::var("HOME").context("HOME environment variable not set")?;
+        let kubeconfig_path = std::path::Path::new(&home_dir)
+            .join(".kube")
+            .join(&self.cluster);
+
+        if !kubeconfig_path.exists() {
+            return Err(anyhow::anyhow!(
+                "Kubeconfig file not found: {}",
+                kubeconfig_path.display()
+            ));
+        }
+
+        let kubeconfig_str = kubeconfig_path.to_string_lossy();
+
+        const MANIFESTS: &[(&str, &str)] = &[(
+            "metrics-server components",
+            include_str!("../../manifests/metrics-server/components.yaml"),
+        )];
+
+        for (i, (description, content)) in MANIFESTS.iter().enumerate() {
+            info!(
+                "Applying manifest {}/{}: {}",
+                i + 1,
+                MANIFESTS.len(),
+                description
+            );
+            cluster_manager
+                .apply_manifest(&kubeconfig_str, content)
+                .await
+                .context(format!("Failed to apply {}", description))?;
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        }
+
+        info!("metrics-server installed successfully");
         Ok(())
     }
 }
@@ -774,20 +782,100 @@ impl StatusArgs {
 
         // Print nodes information
         if !cluster_info.nodes.is_empty() {
+            // Fetch kubelet versions from kubectl
+            let mut node_versions: std::collections::HashMap<String, String> =
+                std::collections::HashMap::new();
+            let kubeconfig = cluster_info.kubeconfig_path.clone().or_else(|| {
+                std::env::var("HOME")
+                    .ok()
+                    .map(|home| format!("{}/.kube/{}", home, cluster_info.name))
+            });
+            if let Some(kubeconfig) = kubeconfig {
+                if let Ok(output) = std::process::Command::new("kubectl")
+                    .args([
+                        "--kubeconfig",
+                        &kubeconfig,
+                        "get",
+                        "nodes",
+                        "-o",
+                        "custom-columns=NAME:.metadata.name,VERSION:.status.nodeInfo.kubeletVersion",
+                        "--no-headers",
+                    ])
+                    .output()
+                {
+                    if output.status.success() {
+                        let stdout = String::from_utf8_lossy(&output.stdout);
+                        for line in stdout.lines() {
+                            let parts: Vec<&str> = line.split_whitespace().collect();
+                            if parts.len() >= 2 {
+                                node_versions
+                                    .insert(parts[0].to_string(), parts[1].to_string());
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Compute column widths from actual data
+            let col_name = cluster_info
+                .nodes
+                .iter()
+                .map(|n| n.name.len())
+                .max()
+                .unwrap_or(0)
+                .max("NAME".len())
+                + 2;
+            let col_status = cluster_info
+                .nodes
+                .iter()
+                .map(|n| n.status.len())
+                .max()
+                .unwrap_or(0)
+                .max("STATUS".len())
+                + 2;
+            let col_role = cluster_info
+                .nodes
+                .iter()
+                .map(|n| n.role.to_string().len())
+                .max()
+                .unwrap_or(0)
+                .max("ROLES".len())
+                + 2;
+            let col_version = node_versions
+                .values()
+                .map(|v| v.len())
+                .max()
+                .unwrap_or(0)
+                .max("VERSION".len())
+                + 2;
+            let col_ip = cluster_info
+                .nodes
+                .iter()
+                .map(|n| n.ip_address.as_deref().unwrap_or("N/A").len())
+                .max()
+                .unwrap_or(0)
+                .max("IP".len())
+                + 2;
+            let total_width = col_name + col_status + col_role + col_version + col_ip;
+
             println!("\nNodes:");
             println!(
-                "{:<25} {:<15} {:<10} {:<15} {:<15}",
+                "{:<col_name$}{:<col_status$}{:<col_role$}{:<col_version$}{:<col_ip$}",
                 "NAME", "STATUS", "ROLES", "VERSION", "IP"
             );
-            println!("{}", "-".repeat(75));
+            println!("{}", "-".repeat(total_width));
 
             for node in &cluster_info.nodes {
+                let version = node_versions
+                    .get(&node.name)
+                    .map(|s| s.as_str())
+                    .unwrap_or(&node.version);
                 println!(
-                    "{:<25} {:<15} {:<10} {:<15} {:<15}",
+                    "{:<col_name$}{:<col_status$}{:<col_role$}{:<col_version$}{:<col_ip$}",
                     node.name,
                     node.status,
-                    node.role,
-                    node.version,
+                    node.role.to_string(),
+                    version,
                     node.ip_address.as_deref().unwrap_or("N/A")
                 );
             }
@@ -1073,7 +1161,29 @@ impl StatusArgs {
     }
 
     async fn check_cni_ready(&self, kubeconfig_str: &str) -> Result<bool> {
-        // Check for Cilium pods
+        // Determine whether Cilium is deployed by checking for its DaemonSet
+        let cilium_deployed = std::process::Command::new("kubectl")
+            .args([
+                "--kubeconfig",
+                kubeconfig_str,
+                "get",
+                "daemonset",
+                "cilium",
+                "-n",
+                "kube-system",
+                "--no-headers",
+            ])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
+        if !cilium_deployed {
+            // ptp CNI (the default) has no pods — node readiness already verifies networking
+            println!("🌐 CNI (ptp): Active ✅");
+            return Ok(true);
+        }
+
+        // Cilium is configured: check pod readiness
         if let Ok(output) = std::process::Command::new("kubectl")
             .args([
                 "--kubeconfig",
@@ -1092,15 +1202,10 @@ impl StatusArgs {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let lines: Vec<&str> = stdout.lines().collect();
 
-                if lines.is_empty() {
-                    println!("🌐 CNI (Cilium): Not found ❌");
-                    return Ok(false);
-                }
-
                 let mut ready_cilium = 0;
                 let total_cilium = lines.len();
 
-                for line in lines {
+                for line in &lines {
                     let parts: Vec<&str> = line.split_whitespace().collect();
                     if parts.len() >= 3 {
                         let ready_status = parts[1];
@@ -1110,7 +1215,7 @@ impl StatusArgs {
                     }
                 }
 
-                let cilium_ready = ready_cilium == total_cilium;
+                let cilium_ready = total_cilium > 0 && ready_cilium == total_cilium;
                 println!(
                     "🌐 CNI (Cilium): {}/{} Ready {}",
                     ready_cilium,
