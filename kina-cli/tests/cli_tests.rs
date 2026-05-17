@@ -507,6 +507,16 @@ fn test_install_traefik() {
 }
 
 #[test]
+fn test_install_metrics_server() {
+    let context = TestContext::new();
+    context.create_test_config().unwrap();
+
+    let mut cmd = context.kina_command();
+    cmd.args(&["install", "metrics-server"]);
+    // Tests installing metrics-server addon
+}
+
+#[test]
 fn test_install_with_cluster() {
     let context = TestContext::new();
     context.create_test_config().unwrap();

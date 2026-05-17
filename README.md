@@ -1,18 +1,11 @@
 # kina - Kubernetes in Apple Container
 
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/vinnie357/kina)
+[![CI](https://github.com/jpackagejasonc/kina/actions/workflows/ci.yml/badge.svg)](https://github.com/jpackagejasonc/kina/actions/workflows/ci.yml)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/jpackagejasonc/kina)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
 [![Apple Container](https://img.shields.io/badge/Apple%20Container-0.5.0%2B-blue.svg)](https://github.com/apple/container)
 
 **kina** is a Rust CLI tool for running local Kubernetes clusters using Apple Container technology. It provides similar functionality to [kind](https://kind.sigs.k8s.io/) (Kubernetes in Docker) but is optimized for macOS systems, leveraging native Apple Container technology for improved performance and integration.
-
-## 🚀 Quick Start Summary
-
-1. **Install Apple Container** from [GitHub releases](https://github.com/apple/container/releases) and run `container system start`
-2. **Install kina** with `cargo install --path kina-cli` or `mise run kina:install` (requires cloning this repo)
-3. **Create cluster** with `kina create my-cluster`
-4. **Export kubeconfig** with `kina export my-cluster --format kubeconfig --output ~/.kube/my-cluster`
-5. **Use kubectl** with `export KUBECONFIG=~/.kube/my-cluster && kubectl get nodes`
 
 📖 **New to kina?** Follow the complete [installation](#installation) and [quick start](#quick-start) guide below.
 
@@ -36,6 +29,7 @@
 - ☸️ **Kubernetes API Compatibility** - Full Kubernetes cluster functionality with kubectl integration
 - 🌐 **CNI Plugin Support** - Choose between PTP (default) and Cilium for container networking
 - 🔧 **Traefik (Gateway API)** - Built-in support for Traefik gateway controller installation and configuration
+- 📊 **Metrics Server** - Built-in support for Kubernetes Metrics Server installation (enables `kubectl top` and HPA)
 - ⚙️ **Flexible Configuration** - TOML-based configuration with sensible defaults
 - 📋 **Comprehensive CLI** - Rich command set for cluster management and operations
 - 🚀 **Development Ready** - Integrated development workflow with mise task automation
@@ -263,7 +257,6 @@ kina export [NAME] [OPTIONS]
 ```bash
 # Install addons
 kina install traefik --cluster NAME
-kina install cni --cluster NAME
 kina install metrics-server --cluster NAME
 ```
 

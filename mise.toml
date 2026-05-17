@@ -85,10 +85,10 @@ dir = "kina-cli"
 [tasks."test:cli"]
 description = "Run basic CLI functionality tests"
 run = [
-    "cargo run --release -- --version",
-    "cargo run --release -- --help",
-    "cargo run --release -- create --help",
-    "cargo run --release -- config show --help",
+  "cargo run --release -- --version",
+  "cargo run --release -- --help",
+  "cargo run --release -- create --help",
+  "cargo run --release -- config show --help",
 ]
 dir = "kina-cli"
 

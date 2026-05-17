@@ -61,7 +61,7 @@ pub enum Commands {
     /// Load container images into clusters
     Load(LoadArgs),
 
-    /// Install addons (ingress controllers, CNI, etc.)
+    /// Install addons (traefik, metrics-server)
     Install(InstallArgs),
 
     /// Export cluster configuration
