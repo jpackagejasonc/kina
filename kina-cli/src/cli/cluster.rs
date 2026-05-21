@@ -1310,3 +1310,42 @@ impl From<CniPluginArg> for CniPlugin {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_kubeconfig_for_nonexistent_cluster() {
+        let result = kubeconfig_for("__kina_test_nonexistent_cluster_abc123__");
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("Kubeconfig not found") || msg.contains("HOME"),
+            "unexpected error: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn test_kubeconfig_for_existing_file() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let kube_dir = tmp.path().join(".kube");
+        std::fs::create_dir_all(&kube_dir).unwrap();
+        std::fs::write(kube_dir.join("test-cluster"), b"kubeconfig").unwrap();
+
+        let old_home = std::env::var("HOME").ok();
+        // Safety: this test must not run concurrently with other tests that read HOME.
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        let result = kubeconfig_for("test-cluster");
+
+        match old_home {
+            Some(h) => unsafe { std::env::set_var("HOME", h) },
+            None => unsafe { std::env::remove_var("HOME") },
+        }
+
+        assert!(result.is_ok());
+        assert!(result.unwrap().ends_with("test-cluster"));
+    }
+}

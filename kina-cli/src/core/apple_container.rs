@@ -1833,6 +1833,20 @@ EOF"#,
         Ok(())
     }
 
+    /// Parse a `kubectl get nodes -o json` response into a container_name → podCIDR map.
+    fn parse_node_cidrs(nodes_json: &serde_json::Value) -> HashMap<String, String> {
+        let mut cidrs = HashMap::new();
+        if let Some(items) = nodes_json["items"].as_array() {
+            for node in items {
+                let name = node["metadata"]["name"].as_str().unwrap_or("").to_string();
+                if let Some(cidr) = node["spec"]["podCIDR"].as_str() {
+                    cidrs.insert(name, cidr.to_string());
+                }
+            }
+        }
+        cidrs
+    }
+
     /// Configure per-node PTP subnets and cross-node routes for multi-node PTP clusters.
     ///
     /// PTP CNI is point-to-point: it only connects pods to their local node. Without this
@@ -1874,16 +1888,7 @@ EOF"#,
         let nodes_json: serde_json::Value =
             serde_json::from_slice(&output.stdout).context("Failed to parse node JSON")?;
 
-        // Build container_name -> pod_cidr map
-        let mut node_cidrs: HashMap<String, String> = HashMap::new();
-        if let Some(items) = nodes_json["items"].as_array() {
-            for node in items {
-                let name = node["metadata"]["name"].as_str().unwrap_or("").to_string();
-                if let Some(cidr) = node["spec"]["podCIDR"].as_str() {
-                    node_cidrs.insert(name, cidr.to_string());
-                }
-            }
-        }
+        let node_cidrs = Self::parse_node_cidrs(&nodes_json);
 
         if node_cidrs.is_empty() {
             warn!("No pod CIDRs found on nodes — cross-node routing skipped");
@@ -2193,5 +2198,47 @@ kubeadm join 192.168.64.5:6443 --token abcdef.0123456789abcdef \
             "expected UTC suffix, got: {}",
             result
         );
+    }
+
+    #[test]
+    fn test_parse_node_cidrs_normal() {
+        let json = serde_json::json!({
+            "items": [
+                {"metadata": {"name": "node-cp"}, "spec": {"podCIDR": "10.244.0.0/24"}},
+                {"metadata": {"name": "node-worker"}, "spec": {"podCIDR": "10.244.1.0/24"}}
+            ]
+        });
+        let cidrs = AppleContainerClient::parse_node_cidrs(&json);
+        assert_eq!(cidrs.len(), 2);
+        assert_eq!(cidrs["node-cp"], "10.244.0.0/24");
+        assert_eq!(cidrs["node-worker"], "10.244.1.0/24");
+    }
+
+    #[test]
+    fn test_parse_node_cidrs_missing_pod_cidr_skipped() {
+        let json = serde_json::json!({
+            "items": [
+                {"metadata": {"name": "node-cp"}, "spec": {"podCIDR": "10.244.0.0/24"}},
+                {"metadata": {"name": "node-worker"}, "spec": {}}
+            ]
+        });
+        let cidrs = AppleContainerClient::parse_node_cidrs(&json);
+        assert_eq!(cidrs.len(), 1);
+        assert!(cidrs.contains_key("node-cp"));
+        assert!(!cidrs.contains_key("node-worker"));
+    }
+
+    #[test]
+    fn test_parse_node_cidrs_empty_items() {
+        let json = serde_json::json!({"items": []});
+        let cidrs = AppleContainerClient::parse_node_cidrs(&json);
+        assert!(cidrs.is_empty());
+    }
+
+    #[test]
+    fn test_parse_node_cidrs_missing_items_key() {
+        let json = serde_json::json!({"kind": "NodeList"});
+        let cidrs = AppleContainerClient::parse_node_cidrs(&json);
+        assert!(cidrs.is_empty());
     }
 }
