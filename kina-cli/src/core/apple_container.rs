@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use chrono::TimeZone;
 use std::collections::HashMap;
 use std::fs;
 use tracing::{debug, info, warn};
@@ -11,6 +12,17 @@ use crate::config::Config;
 
 /// Minimum supported Apple Container version (major, minor, patch)
 const MIN_VERSION: (u32, u32, u32) = (0, 5, 0);
+
+/// Convert a Mac absolute time (seconds since 2001-01-01) to a UTC display string.
+/// Apple Container reports `startedDate` in this format.
+fn format_mac_timestamp(mac_ts: f64) -> String {
+    let unix_ts = mac_ts as i64 + 978_307_200;
+    chrono::Utc
+        .timestamp_opt(unix_ts, 0)
+        .single()
+        .map(|dt| dt.format("%Y-%m-%d %H:%M UTC").to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
 
 /// Client for interacting with Apple Container
 pub struct AppleContainerClient {
@@ -231,6 +243,9 @@ impl AppleContainerClient {
         // 5. Install CNI on control-plane (must be before workers join)
         self.install_cni_plugin(&cp_name).await?;
 
+        // Track all nodes and their VM IPs for cross-node routing setup
+        let mut all_nodes: Vec<(String, String)> = vec![(cp_name.clone(), cp_ip.clone())];
+
         // 6. Create and join worker nodes sequentially
         for i in 0..worker_count {
             // KIND convention: first worker is {name}-worker, subsequent are {name}-worker-N
@@ -266,6 +281,27 @@ impl AppleContainerClient {
                 crate::config::CniPlugin::Ptp
             ) {
                 self.install_ptp_cni(&worker_name).await?;
+            }
+
+            all_nodes.push((worker_name.clone(), worker_ip.clone()));
+        }
+
+        // 7. For PTP, reconfigure each node with its per-node pod CIDR and add cross-node
+        //    routes so pods on workers can reach CoreDNS (and other cross-node pods).
+        //    This must run after all workers have joined so the K8s API has all node objects
+        //    with their assigned podCIDRs.
+        if matches!(
+            self.config.cluster.default_cni,
+            crate::config::CniPlugin::Ptp
+        ) {
+            if let Err(e) = self
+                .configure_ptp_cross_node_routing(&cp_name, &all_nodes)
+                .await
+            {
+                warn!(
+                    "Cross-node routing setup failed (DNS may not work on workers): {}",
+                    e
+                );
             }
         }
 
@@ -752,13 +788,7 @@ impl AppleContainerClient {
                                 created: container
                                     .get("startedDate")
                                     .and_then(|v| v.as_f64())
-                                    .map(|mac_ts| {
-                                        // startedDate is Mac absolute time (seconds since 2001-01-01)
-                                        let unix_ts = mac_ts as i64 + 978_307_200;
-                                        chrono::DateTime::from_timestamp(unix_ts, 0)
-                                            .map(|dt| dt.format("%Y-%m-%d %H:%M UTC").to_string())
-                                            .unwrap_or_else(|| "unknown".to_string())
-                                    })
+                                    .map(format_mac_timestamp)
                                     .unwrap_or_else(|| "unknown".to_string()),
                                 kubeconfig_path: None,
                             });
@@ -1720,36 +1750,47 @@ failSwapOn: false
 
     /// Install PTP CNI plugin optimized for Apple Container VMs
     async fn install_ptp_cni(&self, container_name: &str) -> Result<()> {
-        info!("Installing PTP CNI plugin optimized for Apple Container VMs");
+        self.install_ptp_cni_with_subnet(container_name, "10.244.0.0/16")
+            .await
+    }
 
-        // PTP CNI configuration that works with kata-containers kernel limitations
-        let ptp_config = r#"{
+    /// Install PTP CNI plugin with a specific pod subnet for this node
+    async fn install_ptp_cni_with_subnet(&self, container_name: &str, subnet: &str) -> Result<()> {
+        info!(
+            "Installing PTP CNI plugin on '{}' with subnet {}",
+            container_name, subnet
+        );
+
+        let ptp_config = format!(
+            r#"{{
   "cniVersion": "0.4.0",
   "name": "ptp-net",
   "plugins": [
-    {
+    {{
       "type": "ptp",
       "ipMasq": true,
-      "ipam": {
+      "ipam": {{
         "type": "host-local",
-        "subnet": "10.244.0.0/16",
+        "subnet": "{}",
         "routes": [
-          { "dst": "0.0.0.0/0" }
+          {{ "dst": "0.0.0.0/0" }}
         ]
-      }
-    },
-    {
+      }}
+    }},
+    {{
       "type": "portmap",
-      "capabilities": {
+      "capabilities": {{
         "portMappings": true
-      }
-    }
+      }}
+    }}
   ]
-}"#;
+}}"#,
+            subnet
+        );
 
-        // Create CNI configuration directory and install config
+        // Clear stale IPAM allocations so host-local starts fresh with the new subnet
         let install_cmd = format!(
-            r#"mkdir -p /etc/cni/net.d && cat > /etc/cni/net.d/10-ptp.conflist << 'EOF'
+            r#"mkdir -p /etc/cni/net.d && rm -rf /var/lib/cni/networks/ptp-net && cat > /etc/cni/net.d/10-ptp.conflist << 'EOF'
 {}
 EOF"#,
             ptp_config
@@ -1770,9 +1811,14 @@ EOF"#,
         }
 
         // Restart kubelet to pick up CNI configuration
-        let restart_cmd = "systemctl restart kubelet";
         let mut cmd = std::process::Command::new(&self.cli_path);
-        cmd.args(["exec", container_name, "sh", "-c", restart_cmd]);
+        cmd.args([
+            "exec",
+            container_name,
+            "sh",
+            "-c",
+            "systemctl restart kubelet",
+        ]);
 
         let output = cmd.output().context("Failed to restart kubelet")?;
         if !output.status.success() {
@@ -1780,7 +1826,121 @@ EOF"#,
             warn!("Kubelet restart returned non-zero: {}", stderr);
         }
 
-        info!("PTP CNI plugin installed successfully - compatible with Apple Container VMs");
+        info!(
+            "PTP CNI plugin installed on '{}' with subnet {}",
+            container_name, subnet
+        );
+        Ok(())
+    }
+
+    /// Parse a `kubectl get nodes -o json` response into a container_name → podCIDR map.
+    fn parse_node_cidrs(nodes_json: &serde_json::Value) -> HashMap<String, String> {
+        let mut cidrs = HashMap::new();
+        if let Some(items) = nodes_json["items"].as_array() {
+            for node in items {
+                let name = node["metadata"]["name"].as_str().unwrap_or("").to_string();
+                if let Some(cidr) = node["spec"]["podCIDR"].as_str() {
+                    cidrs.insert(name, cidr.to_string());
+                }
+            }
+        }
+        cidrs
+    }
+
+    /// Configure per-node PTP subnets and cross-node routes for multi-node PTP clusters.
+    ///
+    /// PTP CNI is point-to-point: it only connects pods to their local node. Without this
+    /// step, pods on worker nodes cannot reach CoreDNS (which runs on the control-plane),
+    /// causing DNS failures for any pod on a non-CP node. This method:
+    ///   1. Reads each node's assigned podCIDR from the Kubernetes API.
+    ///   2. Rewrites the PTP config on each node to use its specific /24 subnet (preventing
+    ///      IP conflicts from multiple nodes allocating from the same /16).
+    ///   3. Adds `ip route` entries on each node so pod traffic destined for another node's
+    ///      pod subnet is forwarded to that node's VM IP.
+    async fn configure_ptp_cross_node_routing(
+        &self,
+        cp_name: &str,
+        nodes: &[(String, String)], // (container_name, vm_ip)
+    ) -> Result<()> {
+        info!(
+            "Configuring PTP CNI cross-node routing for {} nodes",
+            nodes.len()
+        );
+
+        // Query pod CIDRs assigned by kube-controller-manager
+        let mut cmd = std::process::Command::new(&self.cli_path);
+        cmd.args([
+            "exec",
+            cp_name,
+            "kubectl",
+            "--kubeconfig=/etc/kubernetes/admin.conf",
+            "get",
+            "nodes",
+            "-o",
+            "json",
+        ]);
+        let output = cmd.output().context("Failed to query node pod CIDRs")?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow::anyhow!("kubectl get nodes failed: {}", stderr));
+        }
+
+        let nodes_json: serde_json::Value =
+            serde_json::from_slice(&output.stdout).context("Failed to parse node JSON")?;
+
+        let node_cidrs = Self::parse_node_cidrs(&nodes_json);
+
+        if node_cidrs.is_empty() {
+            warn!("No pod CIDRs found on nodes — cross-node routing skipped");
+            return Ok(());
+        }
+
+        info!("Node pod CIDRs: {:?}", node_cidrs);
+
+        // For each node: update PTP subnet + add routes to every other node's pod CIDR
+        for (container_name, _vm_ip) in nodes {
+            let pod_cidr = match node_cidrs.get(container_name) {
+                Some(c) => c.clone(),
+                None => {
+                    warn!(
+                        "No pod CIDR found for node '{}', skipping routing setup",
+                        container_name
+                    );
+                    continue;
+                }
+            };
+
+            // Rewrite PTP config with node-specific subnet and clear stale IPAM state
+            self.install_ptp_cni_with_subnet(container_name, &pod_cidr)
+                .await?;
+
+            // Add a host route for every other node's pod CIDR via that node's VM IP
+            for (other_name, other_ip) in nodes {
+                if other_name == container_name {
+                    continue;
+                }
+                if let Some(other_cidr) = node_cidrs.get(other_name) {
+                    let route_cmd = format!("ip route replace {} via {}", other_cidr, other_ip);
+                    let mut cmd = std::process::Command::new(&self.cli_path);
+                    cmd.args(["exec", container_name, "sh", "-c", &route_cmd]);
+                    let out = cmd.output().context("Failed to add cross-node route")?;
+                    if !out.status.success() {
+                        let stderr = String::from_utf8_lossy(&out.stderr);
+                        warn!(
+                            "Route {} via {} on '{}': {}",
+                            other_cidr, other_ip, container_name, stderr
+                        );
+                    } else {
+                        info!(
+                            "Route added: {} via {} on '{}'",
+                            other_cidr, other_ip, container_name
+                        );
+                    }
+                }
+            }
+        }
+
+        info!("Cross-node routing configured");
         Ok(())
     }
 
@@ -2015,5 +2175,70 @@ kubeadm join 192.168.64.5:6443 --token abcdef.0123456789abcdef \
         let containers = json.as_array().unwrap();
         let ip = AppleContainerClient::extract_container_ip(containers, "cluster-control-plane");
         assert_eq!(ip, Some("192.168.64.3".to_string()));
+    }
+
+    #[test]
+    fn test_format_mac_timestamp_epoch() {
+        // mac_ts = 0 → unix = 978_307_200 → 2001-01-01 00:00 UTC (Mac absolute time epoch)
+        assert_eq!(format_mac_timestamp(0.0), "2001-01-01 00:00 UTC");
+    }
+
+    #[test]
+    fn test_format_mac_timestamp_known_value() {
+        // mac_ts = 800_654_222 → unix = 800_654_222 + 978_307_200 = 1_778_961_422
+        // 1_778_961_422 seconds from Unix epoch = 2026-04-16 19:17 UTC (verified externally)
+        let result = format_mac_timestamp(800_654_222.0);
+        assert!(
+            result.starts_with("2026-"),
+            "expected 2026 date, got: {}",
+            result
+        );
+        assert!(
+            result.ends_with("UTC"),
+            "expected UTC suffix, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_parse_node_cidrs_normal() {
+        let json = serde_json::json!({
+            "items": [
+                {"metadata": {"name": "node-cp"}, "spec": {"podCIDR": "10.244.0.0/24"}},
+                {"metadata": {"name": "node-worker"}, "spec": {"podCIDR": "10.244.1.0/24"}}
+            ]
+        });
+        let cidrs = AppleContainerClient::parse_node_cidrs(&json);
+        assert_eq!(cidrs.len(), 2);
+        assert_eq!(cidrs["node-cp"], "10.244.0.0/24");
+        assert_eq!(cidrs["node-worker"], "10.244.1.0/24");
+    }
+
+    #[test]
+    fn test_parse_node_cidrs_missing_pod_cidr_skipped() {
+        let json = serde_json::json!({
+            "items": [
+                {"metadata": {"name": "node-cp"}, "spec": {"podCIDR": "10.244.0.0/24"}},
+                {"metadata": {"name": "node-worker"}, "spec": {}}
+            ]
+        });
+        let cidrs = AppleContainerClient::parse_node_cidrs(&json);
+        assert_eq!(cidrs.len(), 1);
+        assert!(cidrs.contains_key("node-cp"));
+        assert!(!cidrs.contains_key("node-worker"));
+    }
+
+    #[test]
+    fn test_parse_node_cidrs_empty_items() {
+        let json = serde_json::json!({"items": []});
+        let cidrs = AppleContainerClient::parse_node_cidrs(&json);
+        assert!(cidrs.is_empty());
+    }
+
+    #[test]
+    fn test_parse_node_cidrs_missing_items_key() {
+        let json = serde_json::json!({"kind": "NodeList"});
+        let cidrs = AppleContainerClient::parse_node_cidrs(&json);
+        assert!(cidrs.is_empty());
     }
 }

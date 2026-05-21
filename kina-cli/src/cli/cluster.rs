@@ -410,6 +410,18 @@ impl LoadArgs {
     }
 }
 
+/// Returns the kubeconfig path for a cluster as an owned String, or an error if it doesn't exist.
+fn kubeconfig_for(cluster_name: &str) -> Result<String> {
+    let home_dir = std::env::var("HOME").context("HOME environment variable not set")?;
+    let path = std::path::Path::new(&home_dir)
+        .join(".kube")
+        .join(cluster_name);
+    if !path.exists() {
+        return Err(anyhow::anyhow!("Kubeconfig not found: {}", path.display()));
+    }
+    Ok(path.to_string_lossy().into_owned())
+}
+
 impl InstallArgs {
     pub async fn execute(&self, config: &Config) -> Result<()> {
         let cluster_manager = ClusterManager::new(config)?;
@@ -460,20 +472,7 @@ impl InstallArgs {
     async fn install_traefik(&self, cluster_manager: &ClusterManager) -> Result<()> {
         info!("Installing Traefik gateway controller (Gateway API) with complete deployment");
 
-        // Use the kubeconfig file path directly instead of content
-        let home_dir = std::env::var("HOME").context("HOME environment variable not set")?;
-        let kubeconfig_path = std::path::Path::new(&home_dir)
-            .join(".kube")
-            .join(&self.cluster);
-
-        if !kubeconfig_path.exists() {
-            return Err(anyhow::anyhow!(
-                "Kubeconfig file not found: {}",
-                kubeconfig_path.display()
-            ));
-        }
-
-        let kubeconfig_str = kubeconfig_path.to_string_lossy();
+        let kubeconfig_str = kubeconfig_for(&self.cluster)?;
 
         const MANIFESTS: &[(&str, &str)] = &[
             (
@@ -533,42 +532,20 @@ impl InstallArgs {
     }
 
     async fn install_metrics_server(&self, cluster_manager: &ClusterManager) -> Result<()> {
-        info!("Installing metrics-server v0.8.1");
+        const VERSION: &str = "v0.8.1";
+        info!("Installing metrics-server {}", VERSION);
 
-        let home_dir = std::env::var("HOME").context("HOME environment variable not set")?;
-        let kubeconfig_path = std::path::Path::new(&home_dir)
-            .join(".kube")
-            .join(&self.cluster);
+        let kubeconfig_str = kubeconfig_for(&self.cluster)?;
 
-        if !kubeconfig_path.exists() {
-            return Err(anyhow::anyhow!(
-                "Kubeconfig file not found: {}",
-                kubeconfig_path.display()
-            ));
-        }
+        cluster_manager
+            .apply_manifest(
+                &kubeconfig_str,
+                include_str!("../../manifests/metrics-server/components.yaml"),
+            )
+            .await
+            .context("Failed to apply metrics-server components")?;
 
-        let kubeconfig_str = kubeconfig_path.to_string_lossy();
-
-        const MANIFESTS: &[(&str, &str)] = &[(
-            "metrics-server components",
-            include_str!("../../manifests/metrics-server/components.yaml"),
-        )];
-
-        for (i, (description, content)) in MANIFESTS.iter().enumerate() {
-            info!(
-                "Applying manifest {}/{}: {}",
-                i + 1,
-                MANIFESTS.len(),
-                description
-            );
-            cluster_manager
-                .apply_manifest(&kubeconfig_str, content)
-                .await
-                .context(format!("Failed to apply {}", description))?;
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        }
-
-        info!("metrics-server installed successfully");
+        info!("metrics-server {} installed successfully", VERSION);
         Ok(())
     }
 }
@@ -844,6 +821,7 @@ impl StatusArgs {
             let col_version = node_versions
                 .values()
                 .map(|v| v.len())
+                .chain(cluster_info.nodes.iter().map(|n| n.version.len()))
                 .max()
                 .unwrap_or(0)
                 .max("VERSION".len())
@@ -1025,16 +1003,10 @@ impl StatusArgs {
     }
 
     async fn print_cluster_readiness(&self, cluster_name: &str) -> Result<()> {
-        let home_dir = std::env::var("HOME").context("HOME environment variable not set")?;
-        let kubeconfig_path = std::path::Path::new(&home_dir)
-            .join(".kube")
-            .join(cluster_name);
-
-        if !kubeconfig_path.exists() {
-            return Ok(());
-        }
-
-        let kubeconfig_str = kubeconfig_path.to_string_lossy();
+        let kubeconfig_str = match kubeconfig_for(cluster_name) {
+            Ok(s) => s,
+            Err(_) => return Ok(()),
+        };
 
         println!("\n🔍 Cluster Readiness Status:");
         println!("{}", "-".repeat(50));
@@ -1266,7 +1238,7 @@ impl StatusArgs {
                     }
                 }
 
-                let pods_ready = ready_pods == total_pods;
+                let pods_ready = total_pods > 0 && ready_pods == total_pods;
                 println!(
                     "🌍 Gateway Controller: {}/{} Ready {}",
                     ready_pods,
@@ -1336,5 +1308,44 @@ impl From<CniPluginArg> for CniPlugin {
             CniPluginArg::Ptp => CniPlugin::Ptp,
             CniPluginArg::Cilium => CniPlugin::Cilium,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_kubeconfig_for_nonexistent_cluster() {
+        let result = kubeconfig_for("__kina_test_nonexistent_cluster_abc123__");
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("Kubeconfig not found") || msg.contains("HOME"),
+            "unexpected error: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn test_kubeconfig_for_existing_file() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let kube_dir = tmp.path().join(".kube");
+        std::fs::create_dir_all(&kube_dir).unwrap();
+        std::fs::write(kube_dir.join("test-cluster"), b"kubeconfig").unwrap();
+
+        let old_home = std::env::var("HOME").ok();
+        // Safety: this test must not run concurrently with other tests that read HOME.
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        let result = kubeconfig_for("test-cluster");
+
+        match old_home {
+            Some(h) => unsafe { std::env::set_var("HOME", h) },
+            None => unsafe { std::env::remove_var("HOME") },
+        }
+
+        assert!(result.is_ok());
+        assert!(result.unwrap().ends_with("test-cluster"));
     }
 }

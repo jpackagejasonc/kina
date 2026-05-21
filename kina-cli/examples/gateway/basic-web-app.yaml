@@ -28,7 +28,7 @@ spec:
     spec:
       containers:
       - name: web
-        image: joseluisq/static-web-server:2.42.0
+        image: joseluisq/static-web-server:2.42.0@sha256:905174e536be8751f0268ff18b7b0921c17685b15537c069f13aff92bd8bf336
         ports:
         - containerPort: 80
         env:

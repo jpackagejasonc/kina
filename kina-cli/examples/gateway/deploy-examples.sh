@@ -21,13 +21,17 @@ error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
 check_prerequisites() {
     log "Checking prerequisites..."
-    command -v kina    &>/dev/null || error "kina CLI not found in PATH."
-    command -v kubectl &>/dev/null || error "kubectl not found."
+    command -v kina      &>/dev/null || error "kina CLI not found in PATH."
+    command -v kubectl   &>/dev/null || error "kubectl not found."
+    command -v jq        &>/dev/null || error "jq not found (required for JSON parsing)."
+    command -v container &>/dev/null || error "Apple Container CLI not found."
     kina list | grep -q "$CLUSTER_NAME" \
         || error "Cluster '$CLUSTER_NAME' not found. Create it with: kina create $CLUSTER_NAME"
     [[ -f "$KUBECONFIG_PATH" ]] || error "Kubeconfig not found at $KUBECONFIG_PATH"
 
-    CLUSTER_IP=$(container list | grep "$CLUSTER_NAME-control-plane" | awk '{print $NF}' || true)
+    CLUSTER_IP=$(container list --format json \
+        | jq -r --arg name "$CLUSTER_NAME-control-plane" \
+            '.[] | select(.configuration.id == $name) | .networks[0].ipv4Address | split("/")[0]')
     [[ -n "$CLUSTER_IP" ]] || error "Could not determine cluster IP for $CLUSTER_NAME"
     log "Using cluster: $CLUSTER_NAME ($CLUSTER_IP)"
 }
