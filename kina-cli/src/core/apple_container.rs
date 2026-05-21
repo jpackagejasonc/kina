@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use chrono::TimeZone;
 use std::collections::HashMap;
 use std::fs;
 use tracing::{debug, info, warn};
@@ -11,6 +12,17 @@ use crate::config::Config;
 
 /// Minimum supported Apple Container version (major, minor, patch)
 const MIN_VERSION: (u32, u32, u32) = (0, 5, 0);
+
+/// Convert a Mac absolute time (seconds since 2001-01-01) to a UTC display string.
+/// Apple Container reports `startedDate` in this format.
+fn format_mac_timestamp(mac_ts: f64) -> String {
+    let unix_ts = mac_ts as i64 + 978_307_200;
+    chrono::Utc
+        .timestamp_opt(unix_ts, 0)
+        .single()
+        .map(|dt| dt.format("%Y-%m-%d %H:%M UTC").to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
 
 /// Client for interacting with Apple Container
 pub struct AppleContainerClient {
@@ -752,13 +764,7 @@ impl AppleContainerClient {
                                 created: container
                                     .get("startedDate")
                                     .and_then(|v| v.as_f64())
-                                    .map(|mac_ts| {
-                                        // startedDate is Mac absolute time (seconds since 2001-01-01)
-                                        let unix_ts = mac_ts as i64 + 978_307_200;
-                                        chrono::DateTime::from_timestamp(unix_ts, 0)
-                                            .map(|dt| dt.format("%Y-%m-%d %H:%M UTC").to_string())
-                                            .unwrap_or_else(|| "unknown".to_string())
-                                    })
+                                    .map(format_mac_timestamp)
                                     .unwrap_or_else(|| "unknown".to_string()),
                                 kubeconfig_path: None,
                             });
@@ -2015,5 +2021,28 @@ kubeadm join 192.168.64.5:6443 --token abcdef.0123456789abcdef \
         let containers = json.as_array().unwrap();
         let ip = AppleContainerClient::extract_container_ip(containers, "cluster-control-plane");
         assert_eq!(ip, Some("192.168.64.3".to_string()));
+    }
+
+    #[test]
+    fn test_format_mac_timestamp_epoch() {
+        // mac_ts = 0 → unix = 978_307_200 → 2001-01-01 00:00 UTC (Mac absolute time epoch)
+        assert_eq!(format_mac_timestamp(0.0), "2001-01-01 00:00 UTC");
+    }
+
+    #[test]
+    fn test_format_mac_timestamp_known_value() {
+        // mac_ts = 800_654_222 → unix = 800_654_222 + 978_307_200 = 1_778_961_422
+        // 1_778_961_422 seconds from Unix epoch = 2026-04-16 19:17 UTC (verified externally)
+        let result = format_mac_timestamp(800_654_222.0);
+        assert!(
+            result.starts_with("2026-"),
+            "expected 2026 date, got: {}",
+            result
+        );
+        assert!(
+            result.ends_with("UTC"),
+            "expected UTC suffix, got: {}",
+            result
+        );
     }
 }
