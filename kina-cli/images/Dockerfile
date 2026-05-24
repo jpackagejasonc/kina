@@ -1,6 +1,5 @@
 # Kina Kubernetes Node Image
-# Custom Debian-based image for Apple Container VMs with full kernel support
-# Replaces kindest/node with proper VM-compatible image for Cilium CNI
+# Custom Debian-based image for Apple Container VMs
 
 FROM debian:13-slim
 
@@ -35,8 +34,6 @@ RUN apt-get update && apt-get install -y \
     iptables \
     netcat-openbsd \
     socat \
-    # Module loading utilities (for Apple Container VM kernel) \
-    kmod \
     # Container runtime dependencies \
     erofs-utils \
     fuse-overlayfs \
@@ -141,39 +138,13 @@ RUN mkdir -p /kind
 # Enable services
 RUN systemctl enable containerd kubelet
 
-# Configure kernel modules for Cilium
-RUN cat > /etc/modules-load.d/cilium.conf << 'EOF'
-# Kernel modules required for Cilium CNI
-br_netfilter
-ip_tables
-ip6_tables
-iptable_nat
-ip6table_nat
-xt_comment
-xt_conntrack
-xt_MARK
-xt_multiport
-xt_recent
-xt_statistic
-xt_TCPMSS
-xt_tcpudp
-xt_u32
-xt_socket
-vxlan
-EOF
-
-# Configure sysctl for Kubernetes and Cilium
+# Configure sysctl for Kubernetes networking
+# Applied by systemd-sysctl.service at boot -  sysctl binary not required.
 RUN cat > /usr/lib/sysctl.d/99-kubernetes-cri.conf << 'EOF'
 # Required for Kubernetes
 net.bridge.bridge-nf-call-iptables = 1
 net.bridge.bridge-nf-call-ip6tables = 1
 net.ipv4.ip_forward = 1
-
-# Required for Cilium
-net.core.bpf_jit_enable = 1
-net.core.bpf_jit_harden = 0
-kernel.unprivileged_bpf_disabled = 1
-net.ipv4.conf.all.rp_filter = 0
 EOF
 
 # Create entrypoint script (following Kind patterns)
@@ -182,17 +153,6 @@ RUN cat > /usr/local/bin/entrypoint << 'EOF'
 set -o errexit
 set -o nounset
 set -o pipefail
-
-# Load kernel modules required for Cilium CNI
-echo "Loading kernel modules for Cilium..."
-modprobe br_netfilter || echo "Warning: br_netfilter module not available"
-modprobe overlay || echo "Warning: overlay module not available"
-modprobe vxlan || echo "Warning: vxlan module not available"
-modprobe xt_socket || echo "Warning: xt_socket module not available"
-
-# Apply sysctl settings for Kubernetes and Cilium
-echo "Applying sysctl settings..."
-sysctl --system || echo "Warning: some sysctl settings failed"
 
 # Ensure containerd socket directory exists
 mkdir -p /var/run/containerd

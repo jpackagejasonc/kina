@@ -7,7 +7,6 @@ RUST_BACKTRACE = "1"
 
 [tools]
 rust = "stable"
-cilium-cli = "0.19.2"
 "github:nushell/nushell" = { version = "0.112.2", exe = "nu" }
 act = "0.2.88"
 "github:gastownhall/beads" = "1.0.4"

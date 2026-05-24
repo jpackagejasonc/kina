@@ -146,6 +146,54 @@ file_logging = true
 }
 
 #[test]
+fn test_config_rejects_unsupported_cni() {
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join("config.toml");
+    let data_dir = temp_dir.path().join("data");
+    let kubeconfig_dir = temp_dir.path().join("kubeconfig");
+
+    let config_content = format!(
+        r#"
+[cluster]
+default_name = "test-cluster"
+default_image = "custom/image:latest"
+default_wait_timeout = 120
+data_dir = "{}"
+retain_on_failure = false
+default_cni = "unsupported"
+
+[apple_container]
+cli_path = "/custom/path/container"
+
+[apple_container.runtime_config]
+memory_limit = "2Gi"
+storage_limit = "20Gi"
+
+[apple_container.network]
+network_name = "kina"
+enable_ipv6 = false
+dns_servers = []
+
+[kubernetes]
+default_version = "v1.35.5"
+default_namespace = "default"
+kubeconfig_dir = "{}"
+
+[logging]
+level = "info"
+format = "text"
+file_logging = false
+"#,
+        data_dir.to_string_lossy(),
+        kubeconfig_dir.to_string_lossy()
+    );
+
+    fs::write(&config_path, config_content).unwrap();
+
+    assert!(Config::load_from_file(&config_path).is_err());
+}
+
+#[test]
 fn test_config_load_yaml() {
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("config.yaml");

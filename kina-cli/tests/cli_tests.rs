@@ -182,13 +182,13 @@ fn test_create_command_workers_in_help() {
 }
 
 #[test]
-fn test_create_command_with_cni_cilium() {
+fn test_create_command_rejects_unsupported_cni() {
     let context = TestContext::new();
     context.create_test_config().unwrap();
 
     let mut cmd = context.kina_command();
-    cmd.args(&["create", "--cni", "cilium"]);
-    // Tests create with Cilium CNI
+    cmd.args(&["create", "--cni", "unsupported"]);
+    cmd.assert().failure();
 }
 
 #[test]

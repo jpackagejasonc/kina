@@ -39,7 +39,7 @@ pub struct CreateArgs {
     #[arg(long, default_value = "0")]
     pub workers: u32,
 
-    /// CNI plugin to use (ptp or cilium)
+    /// CNI plugin to use (currently only ptp)
     #[arg(long, value_enum, default_value = "ptp")]
     pub cni: CniPluginArg,
 }
@@ -1133,73 +1133,10 @@ impl StatusArgs {
     }
 
     async fn check_cni_ready(&self, kubeconfig_str: &str) -> Result<bool> {
-        // Determine whether Cilium is deployed by checking for its DaemonSet
-        let cilium_deployed = std::process::Command::new("kubectl")
-            .args([
-                "--kubeconfig",
-                kubeconfig_str,
-                "get",
-                "daemonset",
-                "cilium",
-                "-n",
-                "kube-system",
-                "--no-headers",
-            ])
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-
-        if !cilium_deployed {
-            // ptp CNI (the default) has no pods — node readiness already verifies networking
-            println!("🌐 CNI (ptp): Active ✅");
-            return Ok(true);
-        }
-
-        // Cilium is configured: check pod readiness
-        if let Ok(output) = std::process::Command::new("kubectl")
-            .args([
-                "--kubeconfig",
-                kubeconfig_str,
-                "get",
-                "pods",
-                "-n",
-                "kube-system",
-                "-l",
-                "k8s-app=cilium",
-                "--no-headers",
-            ])
-            .output()
-        {
-            if output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let lines: Vec<&str> = stdout.lines().collect();
-
-                let mut ready_cilium = 0;
-                let total_cilium = lines.len();
-
-                for line in &lines {
-                    let parts: Vec<&str> = line.split_whitespace().collect();
-                    if parts.len() >= 3 {
-                        let ready_status = parts[1];
-                        if ready_status.starts_with("1/1") {
-                            ready_cilium += 1;
-                        }
-                    }
-                }
-
-                let cilium_ready = total_cilium > 0 && ready_cilium == total_cilium;
-                println!(
-                    "🌐 CNI (Cilium): {}/{} Ready {}",
-                    ready_cilium,
-                    total_cilium,
-                    if cilium_ready { "✅" } else { "❌" }
-                );
-                return Ok(cilium_ready);
-            }
-        }
-
-        println!("🌐 CNI (Cilium): Unknown ❌");
-        Ok(false)
+        let _ = kubeconfig_str;
+        // PTP CNI has no controller pods. Node readiness verifies the local CNI path.
+        println!("🌐 CNI (ptp): Active ✅");
+        Ok(true)
     }
 
     async fn check_gateway_ready(&self, kubeconfig_str: &str) -> Result<bool> {
@@ -1298,15 +1235,12 @@ impl ApproveCSRArgs {
 pub enum CniPluginArg {
     /// PTP CNI with host-local IPAM (default, Apple Container compatible)
     Ptp,
-    /// Cilium CNI (advanced features, requires compatible kernel)
-    Cilium,
 }
 
 impl From<CniPluginArg> for CniPlugin {
     fn from(arg: CniPluginArg) -> Self {
         match arg {
             CniPluginArg::Ptp => CniPlugin::Ptp,
-            CniPluginArg::Cilium => CniPlugin::Cilium,
         }
     }
 }

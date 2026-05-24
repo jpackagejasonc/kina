@@ -27,7 +27,7 @@
 
 - 🏗️ **Native Apple Container Integration** - Leverage macOS container technology for optimal performance
 - ☸️ **Kubernetes API Compatibility** - Full Kubernetes cluster functionality with kubectl integration
-- 🌐 **CNI Plugin Support** - Choose between PTP (default) and Cilium for container networking
+- 🌐 **CNI Plugin Support** - PTP networking optimized for Apple Container, with a generic plugin selection surface for future options
 - 🔧 **Traefik (Gateway API)** - Built-in support for Traefik gateway controller installation and configuration
 - 📊 **Metrics Server** - Built-in support for Kubernetes Metrics Server installation (enables `kubectl top` and HPA)
 - ⚙️ **Flexible Configuration** - TOML-based configuration with sensible defaults
@@ -131,8 +131,8 @@ kubectl get nodes
 
 **Advanced Options:**
 ```bash
-# Create cluster with Cilium CNI and wait for readiness
-kina create demo --cni cilium --wait 300
+# Create cluster with explicit CNI selection and wait for readiness
+kina create demo --cni ptp --wait 300
 ```
 
 ### Install Traefik (Gateway API)
@@ -219,7 +219,7 @@ kina create [NAME] [OPTIONS]
   --config FILE          Cluster configuration file
   --wait SECONDS         Wait for cluster readiness
   --retain               Retain cluster on failure
-  --cni ptp|cilium       CNI plugin (default: ptp)
+  --cni ptp              CNI plugin (default: ptp)
 
 # Delete a cluster
 kina delete [NAME]
@@ -347,7 +347,7 @@ kina leverages Apple Container technology for running Kubernetes nodes:
 │  │  │     Kubernetes Node             │ │ │
 │  │  │  • kubelet                      │ │ │
 │  │  │  • containerd                   │ │ │
-│  │  │  • CNI (PTP/Cilium)             │ │ │
+│  │  │  • CNI (PTP)                    │ │ │
 │  │  └─────────────────────────────────┘ │ │
 │  └─────────────────────────────────────┘ │
 └─────────────────────────────────────────┘
@@ -360,15 +360,9 @@ kina leverages Apple Container technology for running Kubernetes nodes:
 - **Simplicity**: Point-to-point networking with host-local IPAM
 - **Performance**: Minimal overhead for single-node clusters
 
-### Cilium CNI
-- **Advanced Features**: eBPF-based networking and security
-- **Requirements**: Compatible kernel modules
-- **Use Cases**: Complex networking requirements and observability
-
 ```bash
 # Create cluster with specific CNI
 kina create test-ptp --cni ptp
-kina create test-cilium --cni cilium
 ```
 
 ## Development
@@ -410,7 +404,7 @@ mise run image:clean
 - **Base System**: Debian (13-slim) with systemd for container orchestration
 - **Container Runtime**: containerd configured for Apple Container integration
 - **Kubernetes Components**: kubelet, kubeadm, kubectl (v1.35.5)
-- **CNI Plugins**: PTP and Cilium support
+- **CNI Plugins**: PTP support
 - **Init Scripts**: Apple Container-specific initialization and networking setup
 
 The built images are tagged as `kina/node:v1.35.5` and can be used with:
@@ -547,11 +541,8 @@ kina export my-cluster --output ~/.kube/my-cluster
 export KUBECONFIG=~/.kube/my-cluster
 ```
 
-#### CNI Pod Failures
+#### CNI Readiness Issues
 ```bash
-# Check CNI pod status
-kubectl get pods -n kube-system -l k8s-app=cilium
-
 # Approve pending CSRs
 kina approve-csr my-cluster
 
