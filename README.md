@@ -563,11 +563,10 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 
 1. **Fork and Clone**: Fork the repository and clone your fork
 2. **Setup Environment**: Run `mise install` to install all tools
-3. **Find Work**: Run `bd ready` to find available tasks
-4. **Create Branch**: Create a feature branch for your changes
-5. **Develop**: Make changes with comprehensive tests
-6. **Quality Checks**: Run `mise run pre-commit` before committing (includes gitleaks)
-7. **Submit PR**: Create a pull request with clear description
+3. **Create Branch**: Create a feature branch for your changes
+4. **Develop**: Make changes with comprehensive tests
+5. **Quality Checks**: Run `mise run pre-commit` before committing (includes gitleaks)
+6. **Submit PR**: Create a pull request with clear description
 
 ### Code Quality
 

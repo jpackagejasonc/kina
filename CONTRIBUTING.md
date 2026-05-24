@@ -12,8 +12,7 @@ Thank you for your interest in contributing to kina!
    mise install
    mise run setup
    ```
-3. Find an open task: `bd ready`
-4. Create a branch: `git checkout -b type/description`
+3. Create a branch: `git checkout -b type/description`
 
 ## Development Workflow
 
@@ -21,8 +20,6 @@ Thank you for your interest in contributing to kina!
 - Run `mise run test` to run unit tests
 - Run `mise run lint` to run clippy
 - Run `mise run fmt` to format code
-
-See [CLAUDE.md](CLAUDE.md) and [AGENTS.md](AGENTS.md) for the full workflow, commit conventions, and task tracking instructions.
 
 ## Submitting Changes
 
