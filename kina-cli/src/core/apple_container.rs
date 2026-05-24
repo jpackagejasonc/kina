@@ -8,7 +8,7 @@ use super::types::{
     ClusterInfo, ClusterStatus, CreateClusterOptions, KubeadmJoinInfo, LoadImageOptions, NodeInfo,
     NodeRole,
 };
-use crate::config::Config;
+use crate::config::{CniPlugin, Config};
 
 /// Minimum supported Apple Container version (major, minor, patch)
 const MIN_VERSION: (u32, u32, u32) = (0, 5, 0);
@@ -26,7 +26,6 @@ fn format_mac_timestamp(mac_ts: f64) -> String {
 
 /// Client for interacting with Apple Container
 pub struct AppleContainerClient {
-    config: Config,
     cli_path: String,
     container_version: String,
 }
@@ -45,7 +44,6 @@ impl AppleContainerClient {
         Self::validate_version(&container_version)?;
 
         Ok(Self {
-            config: config.clone(),
             cli_path,
             container_version,
         })
@@ -195,8 +193,13 @@ impl AppleContainerClient {
                 "Creating single-node cluster with combined roles: {}",
                 node_name
             );
-            self.create_single_node(&options.name, &node_name, &options.image)
-                .await?;
+            self.create_single_node(
+                &options.name,
+                &node_name,
+                &options.image,
+                &options.cni_plugin,
+            )
+            .await?;
         } else {
             // Multi-node cluster: 1 control-plane + N workers
             info!(
@@ -241,7 +244,8 @@ impl AppleContainerClient {
             .await?;
 
         // 5. Install CNI on control-plane (must be before workers join)
-        self.install_cni_plugin(&cp_name).await?;
+        self.install_cni_plugin(&cp_name, &options.cni_plugin)
+            .await?;
 
         // Track all nodes and their VM IPs for cross-node routing setup
         let mut all_nodes: Vec<(String, String)> = vec![(cp_name.clone(), cp_ip.clone())];
@@ -274,12 +278,8 @@ impl AppleContainerClient {
             self.join_worker_node(&worker_name, &worker_ip, &join_info)
                 .await?;
 
-            // PTP CNI requires the config file on each node (it's not a DaemonSet).
-            // Cilium deploys as a DaemonSet from the control-plane and auto-rolls to workers.
-            if matches!(
-                self.config.cluster.default_cni,
-                crate::config::CniPlugin::Ptp
-            ) {
+            // PTP CNI requires the config file on each node.
+            if matches!(options.cni_plugin, CniPlugin::Ptp) {
                 self.install_ptp_cni(&worker_name).await?;
             }
 
@@ -290,10 +290,7 @@ impl AppleContainerClient {
         //    routes so pods on workers can reach CoreDNS (and other cross-node pods).
         //    This must run after all workers have joined so the K8s API has all node objects
         //    with their assigned podCIDRs.
-        if matches!(
-            self.config.cluster.default_cni,
-            crate::config::CniPlugin::Ptp
-        ) {
+        if matches!(options.cni_plugin, CniPlugin::Ptp) {
             if let Err(e) = self
                 .configure_ptp_cross_node_routing(&cp_name, &all_nodes)
                 .await
@@ -322,6 +319,7 @@ impl AppleContainerClient {
         cluster_name: &str,
         node_name: &str,
         image: &str,
+        cni_plugin: &CniPlugin,
     ) -> Result<()> {
         info!("Creating single Kubernetes node '{}'", node_name);
 
@@ -420,7 +418,7 @@ impl AppleContainerClient {
 
         // Install CNI plugin (now user has kubectl access if this fails)
         // Use default CNI from config for now - will be configurable in future updates
-        self.install_cni_plugin(node_name).await?;
+        self.install_cni_plugin(node_name, cni_plugin).await?;
 
         info!(
             "Kubernetes cluster '{}' initialized successfully",
@@ -1741,10 +1739,9 @@ failSwapOn: false
     }
 
     /// Install CNI plugin based on configuration
-    async fn install_cni_plugin(&self, container_name: &str) -> Result<()> {
-        match self.config.cluster.default_cni {
-            crate::config::CniPlugin::Ptp => self.install_ptp_cni(container_name).await,
-            crate::config::CniPlugin::Cilium => self.install_cilium_cni(container_name).await,
+    async fn install_cni_plugin(&self, container_name: &str, cni_plugin: &CniPlugin) -> Result<()> {
+        match cni_plugin {
+            CniPlugin::Ptp => self.install_ptp_cni(container_name).await,
         }
     }
 
@@ -1941,53 +1938,6 @@ EOF"#,
         }
 
         info!("Cross-node routing configured");
-        Ok(())
-    }
-
-    /// Install Cilium CNI plugin using standard Cilium CLI
-    async fn install_cilium_cni(&self, container_name: &str) -> Result<()> {
-        info!("Installing Cilium CNI plugin using standard Cilium CLI");
-
-        // Set up environment (use the kubeconfig that kubeadm created)
-        let kubeconfig_env = "export KUBECONFIG=/etc/kubernetes/admin.conf";
-
-        // First install the Cilium CLI (running as root in container, no sudo needed)
-        // Use arm64 architecture for Apple Silicon compatibility
-        let install_cli_cmd = r#"
-CILIUM_CLI_VERSION=$(curl -s https://raw.githubusercontent.com/cilium/cilium-cli/main/stable.txt)
-CLI_ARCH=arm64
-curl -L --fail --remote-name-all https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
-sha256sum --check cilium-linux-${CLI_ARCH}.tar.gz.sha256sum
-tar xzvfC cilium-linux-${CLI_ARCH}.tar.gz /usr/local/bin
-rm -f cilium-linux-${CLI_ARCH}.tar.gz cilium-linux-${CLI_ARCH}.tar.gz.sha256sum
-"#;
-
-        let mut cmd = std::process::Command::new(&self.cli_path);
-        cmd.args(["exec", container_name, "sh", "-c", install_cli_cmd]);
-
-        let output = cmd.output().context("Failed to install Cilium CLI")?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow::anyhow!("Failed to install Cilium CLI: {}", stderr));
-        }
-
-        // Now install Cilium using the standard cilium install command with minimal Apple Container fix
-        // Disable local node route management to fix: "address family not supported by protocol"
-        let cilium_install_cmd = format!(
-            "{} && cilium install --version 1.19.4 --set enableLocalNodeRoute=false",
-            kubeconfig_env
-        );
-
-        let mut cmd = std::process::Command::new(&self.cli_path);
-        cmd.args(["exec", container_name, "sh", "-c", &cilium_install_cmd]);
-
-        let output = cmd.output().context("Failed to install Cilium")?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow::anyhow!("Failed to install Cilium: {}", stderr));
-        }
-
-        info!("Cilium CNI plugin installed successfully using standard installation");
         Ok(())
     }
 

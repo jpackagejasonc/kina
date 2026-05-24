@@ -52,8 +52,6 @@ pub struct ClusterDefaults {
 pub enum CniPlugin {
     /// PTP CNI with host-local IPAM (default, Apple Container compatible)
     Ptp,
-    /// Cilium CNI (advanced features, requires compatible kernel)
-    Cilium,
 }
 
 /// Apple Container specific configuration
