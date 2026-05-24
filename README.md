@@ -412,20 +412,6 @@ The built images are tagged as `kina/node:v1.35.5` and can be used with:
 kina create my-cluster --image kina/node:v1.35.5
 ```
 
-### Task Tracking
-
-kina uses [beads](https://github.com/gastownhall/beads) (`bd`) for distributed git-backed task tracking. Tasks are stored in the `.beads/` directory and synced via git.
-
-```bash
-bd ready                         # Find tasks ready to work on (no blockers)
-bd list                          # List all open tasks
-bd show <id>                     # View task details
-bd update <id> --status in_progress  # Claim a task
-bd close <id>                    # Complete a task
-```
-
-See [AGENTS.md](AGENTS.md) for the full beads workflow.
-
 ### Pre-commit and Secret Scanning
 
 `mise run pre-commit` runs formatting, linting, tests, audit, and **gitleaks secret scanning** before each commit. Gitleaks is also available standalone:
@@ -488,10 +474,8 @@ kina/
 │   ├── images/                # Custom node image Dockerfile
 │   └── Cargo.toml
 ├── scripts/                    # Extracted mise task scripts (Nushell)
-├── docs/                       # Research, planning, and development docs
-├── .beads/                     # Distributed task tracking (beads)
+├── docs/                       # Documentation
 ├── CLAUDE.md                   # AI assistant context
-├── AGENTS.md                   # Beads workflow for AI agents
 ├── mise.toml                   # Development automation
 ├── Cargo.toml                  # Workspace configuration
 └── README.md
