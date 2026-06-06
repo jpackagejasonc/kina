@@ -48,8 +48,8 @@ kina approve-csr my-cluster
 ```
 
 This command:
-- Finds all pending `kubernetes.io/kubelet-serving` CSRs
-- Approves them immediately
+- Finds `kubernetes.io/kubelet-serving` CSRs
+- Approves them with `kubectl certificate approve`
 - Fixes TLS errors with kubectl logs/exec
 
 ## Security Considerations
@@ -57,7 +57,7 @@ This command:
 kina's auto-approval is safe because:
 
 1. **Scope Limited**: Only approves kubelet-serving CSRs, not arbitrary certificates
-2. **Node Identity**: CSRs must come from valid cluster nodes
+2. **Cluster Scoped**: Approval uses the kubeconfig for the target local kina cluster
 3. **Time-Bounded**: Bootstrap approval only runs for 60 seconds after cluster creation
 4. **Explicit**: Manual approval requires explicit user action
 
@@ -73,8 +73,8 @@ kina's auto-approval is safe because:
 ### Manual Approval
 
 1. `kina approve-csr` command calls `ClusterManager::approve_kubelet_csrs()`
-2. `KubernetesClient::auto_approve_kubelet_csrs()` finds pending CSRs
-3. Approves all pending kubelet-serving CSRs immediately
+2. `KubernetesClient::auto_approve_kubelet_csrs()` finds kubelet-serving CSRs
+3. Approves matching kubelet-serving CSRs immediately
 
 ### CSR Detection
 
