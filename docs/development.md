@@ -36,13 +36,13 @@ mise run image:clean
 **Node Image Components:**
 - **Base System**: Debian (13-slim) with systemd for container orchestration
 - **Container Runtime**: containerd configured for Apple Container integration
-- **Kubernetes Components**: kubelet, kubeadm, kubectl (v1.35.5)
+- **Kubernetes Components**: kubelet, kubeadm, kubectl (v1.36.1)
 - **CNI Plugins**: PTP support
 - **Init Scripts**: Apple Container-specific initialization and networking setup
 
-The built images are tagged as `kina/node:v1.35.5` and can be used with:
+The built images are tagged as `kina/node:v1.36.1` and can be used with:
 ```bash
-kina create my-cluster --image kina/node:v1.35.5
+kina create my-cluster --image kina/node:v1.36.1
 ```
 
 ## Pre-commit and Secret Scanning

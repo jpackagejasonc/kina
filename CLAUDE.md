@@ -34,5 +34,5 @@ All AI assistants working on this project MUST adhere to strict factual accuracy
 - Never fabricate time estimates, effort calculations, or completion timelines without measurement
 
 ### Development Context
-- **Technology Requirements**: macOS 26+, Apple Container 0.5.0+, kubectl, mise, Nushell
+- **Technology Requirements**: macOS 26+, Apple Container 1.0.0+, kubectl, mise, Nushell
 - **Integration Goals**: Kind (Kubernetes in Docker) workflow compatibility using Apple Container technology

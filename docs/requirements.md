@@ -3,7 +3,7 @@
 ## System Requirements
 - **Mac**: Apple silicon
 - **macOS**: 26+
-- **Apple Container**: 0.5.0+ (auto-detected and validated at startup)
+- **Apple Container**: 1.0.0+ (auto-detected and validated at startup)
 - **Rust**: 1.70+ (for building from source)
 
 ## Apple Container Installation
@@ -22,7 +22,7 @@ container system start
 
 **Verify**: Check installation with `container --version`
 
-**Note**: kina requires Apple Container **0.5.0 or later**. The version is automatically detected and validated when kina starts. Run `kina` (no arguments) to see your kina and Apple Container versions.
+**Note**: kina requires Apple Container **1.0.0 or later**. The version is automatically detected and validated when kina starts. Run `kina` (no arguments) to see your kina and Apple Container versions.
 
 ## Kubernetes Tools
 - `kubectl` - Kubernetes command-line tool

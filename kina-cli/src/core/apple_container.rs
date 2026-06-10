@@ -11,7 +11,7 @@ use super::types::{
 use crate::config::{CniPlugin, Config};
 
 /// Minimum supported Apple Container version (major, minor, patch)
-const MIN_VERSION: (u32, u32, u32) = (0, 5, 0);
+const MIN_VERSION: (u32, u32, u32) = (1, 0, 0);
 
 /// Convert a Mac absolute time (seconds since 2001-01-01) to a UTC display string.
 /// Apple Container reports `startedDate` in this format.
@@ -69,7 +69,7 @@ impl AppleContainerClient {
             ));
         }
 
-        // Parse version from output like: "container CLI version 0.5.0 (build: release, commit: 48230f3)"
+        // Parse version from output like: "container CLI version 1.0.0 (build: release, commit: 48230f3)"
         let stdout = String::from_utf8_lossy(&output.stdout);
         let version_str = stdout.trim();
 
@@ -120,10 +120,10 @@ impl AppleContainerClient {
             return Err(anyhow::anyhow!(
                 "Apple Container CLI version {} is not supported. \
                  Minimum required version is {}.{}.{}.\n\
-                 Breaking changes in 0.5.0:\n\
-                 - 'container images' replaced by 'container image'\n\
-                 - Keychain ID changed to 'com.apple.container.registry'\n\
-                 - System properties consolidated to 'container system property'\n\
+                 Breaking changes in 1.0.0:\n\
+                 - Structured output (JSON/YAML/TOML) of list/inspect commands was reshaped\n\
+                 - 'container system property get/set' removed in favor of a TOML config file\n\
+                 - 'container cp' (required by kina image loading) is only available in 1.0.0+\n\
                  Please upgrade Apple Container to continue.",
                 version,
                 min_major,
@@ -746,25 +746,12 @@ impl AppleContainerClient {
                         .and_then(|v| v.as_str())
                         .unwrap_or("unknown");
 
-                    let container_name = container
-                        .get("configuration")
-                        .and_then(|c| c.get("id"))
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown");
+                    let container_name = Self::container_id(&container).unwrap_or("unknown");
 
-                    let state = container
-                        .get("status")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown");
+                    let state = Self::container_state(&container).unwrap_or("unknown");
 
                     // Extract IP address from container networks
-                    let ip_address = container
-                        .get("networks")
-                        .and_then(|networks| networks.as_array())
-                        .and_then(|networks| networks.first())
-                        .and_then(|network| network.get("ipv4Address"))
-                        .and_then(|addr| addr.as_str())
-                        .map(|addr| addr.split('/').next().unwrap_or(addr).to_string());
+                    let ip_address = Self::container_ipv4(&container);
 
                     // Group containers by cluster name
                     let cluster_info =
@@ -775,7 +762,7 @@ impl AppleContainerClient {
                                 image: labels
                                     .get("io.kina.image")
                                     .and_then(|v| v.as_str())
-                                    .unwrap_or("kina/node:v1.35.5")
+                                    .unwrap_or("kina/node:v1.36.1")
                                     .to_string(),
                                 status: if state == "running" {
                                     ClusterStatus::Running
@@ -783,10 +770,7 @@ impl AppleContainerClient {
                                     ClusterStatus::Stopped
                                 },
                                 nodes: Vec::new(),
-                                created: container
-                                    .get("startedDate")
-                                    .and_then(|v| v.as_f64())
-                                    .map(format_mac_timestamp)
+                                created: Self::format_started_date(&container)
                                     .unwrap_or_else(|| "unknown".to_string()),
                                 kubeconfig_path: None,
                             });
@@ -1251,26 +1235,16 @@ impl AppleContainerClient {
                     let stdout = String::from_utf8_lossy(&output.stdout);
                     if let Ok(containers) = serde_json::from_str::<Vec<serde_json::Value>>(&stdout)
                     {
-                        for container in containers {
-                            if let Some(id) = container
-                                .get("configuration")
-                                .and_then(|c| c.get("id"))
-                                .and_then(|v| v.as_str())
-                            {
-                                if id == container_name {
-                                    if let Some(status) =
-                                        container.get("status").and_then(|v| v.as_str())
-                                    {
-                                        if status == "running" {
-                                            debug!(
-                                                "Container '{}' is running after {} attempts",
-                                                container_name, attempt
-                                            );
-                                            return Ok(());
-                                        }
-                                    }
-                                }
-                            }
+                        let ready = containers.iter().any(|c| {
+                            Self::container_id(c) == Some(container_name)
+                                && Self::container_state(c) == Some("running")
+                        });
+                        if ready {
+                            debug!(
+                                "Container '{}' is running after {} attempts",
+                                container_name, attempt
+                            );
+                            return Ok(());
                         }
                     }
                 }
@@ -1361,30 +1335,65 @@ impl AppleContainerClient {
         })
     }
 
+    /// Container id: Apple Container 1.0.0 adds a top-level `id`;
+    /// `configuration.id` is kept as a fallback.
+    fn container_id(container: &serde_json::Value) -> Option<&str> {
+        container.get("id").and_then(|v| v.as_str()).or_else(|| {
+            container
+                .get("configuration")
+                .and_then(|c| c.get("id"))
+                .and_then(|v| v.as_str())
+        })
+    }
+
+    /// Runtime state: Apple Container 1.0.0 nests it at `status.state`
+    /// (the top-level `status` string was removed in the 1.0.0 output cleanup).
+    fn container_state(container: &serde_json::Value) -> Option<&str> {
+        container
+            .get("status")
+            .and_then(|s| s.get("state"))
+            .and_then(|v| v.as_str())
+    }
+
+    /// First IPv4 address from `status.networks`, with the CIDR suffix stripped
+    /// (e.g. "192.168.64.5/24" -> "192.168.64.5").
+    fn container_ipv4(container: &serde_json::Value) -> Option<String> {
+        let address = container
+            .get("status")
+            .and_then(|s| s.get("networks"))
+            .and_then(|v| v.as_array())
+            .and_then(|nets| nets.first())
+            .and_then(|net| net.get("ipv4Address"))
+            .and_then(|v| v.as_str())?;
+        Some(address.split('/').next().unwrap_or(address).to_string())
+    }
+
+    /// Format `status.startedDate` for display. Apple Container 1.0.0 emits an
+    /// RFC 3339 string; the numeric arm defensively accepts a float of seconds
+    /// since the Apple epoch (2001-01-01), the encoding older releases used.
+    fn format_started_date(container: &serde_json::Value) -> Option<String> {
+        match container.get("status")?.get("startedDate")? {
+            serde_json::Value::Number(n) => n.as_f64().map(format_mac_timestamp),
+            serde_json::Value::String(s) => {
+                chrono::DateTime::parse_from_rfc3339(s).ok().map(|dt| {
+                    dt.with_timezone(&chrono::Utc)
+                        .format("%Y-%m-%d %H:%M UTC")
+                        .to_string()
+                })
+            }
+            _ => None,
+        }
+    }
+
     /// Extract IP address for a named container from a parsed `container list` JSON array.
-    /// The Apple Container JSON format uses `ipv4Address` (with CIDR suffix, e.g. "192.168.64.5/24").
     fn extract_container_ip(
         containers: &[serde_json::Value],
         container_name: &str,
     ) -> Option<String> {
-        for container in containers {
-            let id = container
-                .get("configuration")
-                .and_then(|c| c.get("id"))
-                .and_then(|v| v.as_str())?;
-
-            if id == container_name {
-                let address = container
-                    .get("networks")
-                    .and_then(|v| v.as_array())
-                    .and_then(|nets| nets.first())
-                    .and_then(|net| net.get("ipv4Address"))
-                    .and_then(|v| v.as_str())?;
-                let ip = address.split('/').next().unwrap_or(address);
-                return Some(ip.to_string());
-            }
-        }
-        None
+        containers
+            .iter()
+            .find(|c| Self::container_id(c) == Some(container_name))
+            .and_then(Self::container_ipv4)
     }
 
     /// Generate kubeadm init configuration YAML
@@ -1410,7 +1419,7 @@ nodeRegistration:
 ---
 apiVersion: kubeadm.k8s.io/v1beta4
 kind: ClusterConfiguration
-kubernetesVersion: v1.35.5
+kubernetesVersion: v1.36.1
 clusterName: "{cluster_name}"
 controlPlaneEndpoint: "{vm_ip}:6443"
 apiServer:
@@ -2062,9 +2071,12 @@ kubeadm join 192.168.64.5:6443 --token abcdef.0123456789abcdef \
     #[test]
     fn test_extract_container_ip_with_cidr() {
         let json = serde_json::json!([{
-            "status": "running",
-            "networks": [{"ipv4Address": "192.168.64.5/24", "network": "default"}],
-            "configuration": {"id": "my-node"}
+            "id": "my-node",
+            "configuration": {"id": "my-node"},
+            "status": {
+                "state": "running",
+                "networks": [{"ipv4Address": "192.168.64.5/24", "network": "default"}]
+            }
         }]);
         let containers = json.as_array().unwrap();
         let ip = AppleContainerClient::extract_container_ip(containers, "my-node");
@@ -2074,9 +2086,9 @@ kubeadm join 192.168.64.5:6443 --token abcdef.0123456789abcdef \
     #[test]
     fn test_extract_container_ip_strips_cidr_suffix() {
         let json = serde_json::json!([{
-            "status": "running",
-            "networks": [{"ipv4Address": "10.0.0.1/16"}],
-            "configuration": {"id": "node"}
+            "id": "node",
+            "configuration": {"id": "node"},
+            "status": {"state": "running", "networks": [{"ipv4Address": "10.0.0.1/16"}]}
         }]);
         let containers = json.as_array().unwrap();
         let ip = AppleContainerClient::extract_container_ip(containers, "node");
@@ -2086,9 +2098,9 @@ kubeadm join 192.168.64.5:6443 --token abcdef.0123456789abcdef \
     #[test]
     fn test_extract_container_ip_wrong_name_returns_none() {
         let json = serde_json::json!([{
-            "status": "running",
-            "networks": [{"ipv4Address": "192.168.64.5/24"}],
-            "configuration": {"id": "other-node"}
+            "id": "other-node",
+            "configuration": {"id": "other-node"},
+            "status": {"state": "running", "networks": [{"ipv4Address": "192.168.64.5/24"}]}
         }]);
         let containers = json.as_array().unwrap();
         let ip = AppleContainerClient::extract_container_ip(containers, "my-node");
@@ -2097,11 +2109,11 @@ kubeadm join 192.168.64.5:6443 --token abcdef.0123456789abcdef \
 
     #[test]
     fn test_extract_container_ip_missing_field_returns_none() {
-        // Simulate old/wrong field name "address" — should return None
+        // Wrong field name "address" — should return None
         let json = serde_json::json!([{
-            "status": "running",
-            "networks": [{"address": "192.168.64.5/24"}],
-            "configuration": {"id": "my-node"}
+            "id": "my-node",
+            "configuration": {"id": "my-node"},
+            "status": {"state": "running", "networks": [{"address": "192.168.64.5/24"}]}
         }]);
         let containers = json.as_array().unwrap();
         let ip = AppleContainerClient::extract_container_ip(containers, "my-node");
@@ -2112,19 +2124,94 @@ kubeadm join 192.168.64.5:6443 --token abcdef.0123456789abcdef \
     fn test_extract_container_ip_selects_correct_container() {
         let json = serde_json::json!([
             {
-                "status": "running",
-                "networks": [{"ipv4Address": "192.168.64.2/24"}],
-                "configuration": {"id": "cluster-worker"}
+                "id": "cluster-worker",
+                "configuration": {"id": "cluster-worker"},
+                "status": {"state": "running", "networks": [{"ipv4Address": "192.168.64.2/24"}]}
             },
             {
-                "status": "running",
-                "networks": [{"ipv4Address": "192.168.64.3/24"}],
-                "configuration": {"id": "cluster-control-plane"}
+                "id": "cluster-control-plane",
+                "configuration": {"id": "cluster-control-plane"},
+                "status": {"state": "running", "networks": [{"ipv4Address": "192.168.64.3/24"}]}
             }
         ]);
         let containers = json.as_array().unwrap();
         let ip = AppleContainerClient::extract_container_ip(containers, "cluster-control-plane");
         assert_eq!(ip, Some("192.168.64.3".to_string()));
+    }
+
+    #[test]
+    fn test_container_state_reads_nested_state() {
+        let container = serde_json::json!({
+            "id": "n1",
+            "status": {"state": "running", "networks": []}
+        });
+        assert_eq!(
+            AppleContainerClient::container_state(&container),
+            Some("running")
+        );
+    }
+
+    #[test]
+    fn test_container_state_missing_returns_none() {
+        let container = serde_json::json!({"id": "n1"});
+        assert_eq!(AppleContainerClient::container_state(&container), None);
+    }
+
+    #[test]
+    fn test_container_id_falls_back_to_configuration() {
+        let container = serde_json::json!({"configuration": {"id": "cfg-id"}});
+        assert_eq!(
+            AppleContainerClient::container_id(&container),
+            Some("cfg-id")
+        );
+        let container = serde_json::json!({"id": "top-id", "configuration": {"id": "cfg-id"}});
+        assert_eq!(
+            AppleContainerClient::container_id(&container),
+            Some("top-id")
+        );
+    }
+
+    #[test]
+    fn test_format_started_date_numeric_apple_epoch() {
+        // Apple epoch 0 = 2001-01-01 00:00 UTC (same contract as format_mac_timestamp)
+        let container = serde_json::json!({"status": {"startedDate": 0.0}});
+        assert_eq!(
+            AppleContainerClient::format_started_date(&container),
+            Some("2001-01-01 00:00 UTC".to_string())
+        );
+    }
+
+    #[test]
+    fn test_format_started_date_rfc3339_string() {
+        let container = serde_json::json!({"status": {"startedDate": "2026-06-09T12:30:00Z"}});
+        assert_eq!(
+            AppleContainerClient::format_started_date(&container),
+            Some("2026-06-09 12:30 UTC".to_string())
+        );
+    }
+
+    #[test]
+    fn test_format_started_date_missing_returns_none() {
+        let container = serde_json::json!({"status": {"state": "running"}});
+        assert_eq!(AppleContainerClient::format_started_date(&container), None);
+    }
+
+    #[test]
+    fn test_format_started_date_null_returns_none() {
+        let container = serde_json::json!({"status": {"startedDate": null}});
+        assert_eq!(AppleContainerClient::format_started_date(&container), None);
+    }
+
+    #[test]
+    fn test_extract_container_ip_empty_networks_returns_none() {
+        let json = serde_json::json!([{
+            "id": "my-node",
+            "configuration": {"id": "my-node"},
+            "status": {"state": "running", "networks": []}
+        }]);
+        let containers = json.as_array().unwrap();
+        let ip = AppleContainerClient::extract_container_ip(containers, "my-node");
+        assert_eq!(ip, None);
     }
 
     #[test]
@@ -2190,5 +2277,21 @@ kubeadm join 192.168.64.5:6443 --token abcdef.0123456789abcdef \
         let json = serde_json::json!({"kind": "NodeList"});
         let cidrs = AppleContainerClient::parse_node_cidrs(&json);
         assert!(cidrs.is_empty());
+    }
+
+    #[test]
+    fn test_validate_version_accepts_1_0_0() {
+        assert!(AppleContainerClient::validate_version("1.0.0").is_ok());
+    }
+
+    #[test]
+    fn test_validate_version_accepts_newer() {
+        assert!(AppleContainerClient::validate_version("1.2.0").is_ok());
+    }
+
+    #[test]
+    fn test_validate_version_rejects_pre_1_0() {
+        let err = AppleContainerClient::validate_version("0.12.3").unwrap_err();
+        assert!(err.to_string().contains("1.0.0"), "got: {}", err);
     }
 }

@@ -5,7 +5,7 @@
 ```bash
 # Create a new cluster
 kina create [NAME] [OPTIONS]
-  --image TEXT           Container image (default: kina/node:v1.35.5)
+  --image TEXT           Container image (default: kina/node:v1.36.1)
   --config FILE          Cluster configuration file
   --wait SECONDS         Wait for cluster readiness
   --retain               Retain cluster on failure

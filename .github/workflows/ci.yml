@@ -38,7 +38,7 @@ jobs:
       - name: Install kubectl
         if: ${{ !env.ACT }}
         env:
-          KUBECTL_VERSION: v1.35.5
+          KUBECTL_VERSION: v1.36.1
         run: |
           curl -sLO --retry 3 --retry-all-errors "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/darwin/arm64/kubectl"
           curl -sLO --retry 3 --retry-all-errors "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/darwin/arm64/kubectl.sha256"
@@ -50,8 +50,8 @@ jobs:
       - name: Install Apple container package
         if: ${{ !env.ACT }}
         env:
-          CONTAINER_SHA256: 83f363126ac1f064588de39cd6b474340d489c1926492a2c4e59c4d54aa6d8e3
-          CONTAINER_VERSION: 0.12.3
+          CONTAINER_SHA256: 13f45f26da94c354adcbefe1e8f7631e7f126e93c5d4dd6a5a538aa66b4f479d
+          CONTAINER_VERSION: 1.0.0
         run: |
           curl -sLO --retry 3 --retry-all-errors "https://github.com/apple/container/releases/download/${CONTAINER_VERSION}/container-${CONTAINER_VERSION}-installer-signed.pkg"
           sha256 -c $CONTAINER_SHA256 container-${CONTAINER_VERSION}-installer-signed.pkg
