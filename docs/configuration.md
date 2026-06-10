@@ -12,7 +12,7 @@ kina uses a TOML configuration file located at:
 ```toml
 [cluster]
 default_name = "kina"
-default_image = "kina/node:v1.35.5"
+default_image = "kina/node:v1.36.1"
 default_wait_timeout = 300
 data_dir = "~/.local/share/kina"
 retain_on_failure = false
@@ -32,7 +32,7 @@ enable_ipv6 = false
 dns_servers = []
 
 [kubernetes]
-default_version = "v1.35.5"
+default_version = "v1.36.1"
 kubectl_path = null  # Auto-detected
 default_namespace = "default"
 kubeconfig_dir = "~/.config/kina/kubeconfig"

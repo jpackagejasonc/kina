@@ -31,7 +31,7 @@ mise run install
 # Verify installation (shows kina and Apple Container versions)
 kina
 
-# Check Apple Container availability (REQUIRED, 0.5.0+)
+# Check Apple Container availability (REQUIRED, 1.0.0+)
 mise run container:check  # If using mise
 # OR manually check:
 container --version
@@ -40,4 +40,4 @@ container system start  # Start the service if not running
 kubectl version --client
 ```
 
-**Important**: Apple Container 0.5.0+ must be available before creating clusters. kina auto-detects and validates the version at startup. Run `kina` with no arguments, or `kina status` when clusters exist, to see Apple Container version information.
+**Important**: Apple Container 1.0.0+ must be available before creating clusters. kina auto-detects and validates the version at startup. Run `kina` with no arguments, or `kina status` when clusters exist, to see Apple Container version information.

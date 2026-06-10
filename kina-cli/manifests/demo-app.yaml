@@ -18,7 +18,7 @@ spec:
     spec:
       initContainers:
       - name: render-template
-        image: alpine:3.23.4@sha256:378c4c5418f7493bd500ad21ffb43818d0689daaad43e3261859fb417d1481a0
+        image: alpine:3.24.0@sha256:8ddefa941e689fc29abcdeb8dae3b3c6d139cc08ce9a52633931160701770685
         command: ["/bin/sh", "-c"]
         args:
           - |

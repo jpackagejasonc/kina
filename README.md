@@ -3,7 +3,7 @@
 [![CI](https://github.com/jpackagejasonc/kina/actions/workflows/ci.yml/badge.svg)](https://github.com/jpackagejasonc/kina/actions/workflows/ci.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/jpackagejasonc/kina)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
-[![Apple Container](https://img.shields.io/badge/Apple%20Container-0.5.0%2B-blue.svg)](https://github.com/apple/container)
+[![Apple Container](https://img.shields.io/badge/Apple%20Container-1.0.0%2B-blue.svg)](https://github.com/apple/container)
 
 **kina** is a Rust CLI tool for running local Kubernetes clusters using Apple Container technology. It provides similar functionality to [kind](https://kind.sigs.k8s.io/) (Kubernetes in Docker) but is optimized for macOS systems, leveraging native Apple Container technology for improved performance and integration.
 
